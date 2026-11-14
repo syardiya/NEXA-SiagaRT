@@ -506,10 +506,89 @@ export const INITIAL_DATA = {
   ]
 };
 
-// In-Memory Database store with disk persistence
+// In-Memory Database store with Cloud PostgreSQL & local disk persistence
 class Database {
   constructor() {
     this.data = this.loadData();
+    if (pgPool) {
+      this.syncFromPostgres();
+    }
+  }
+
+  async syncFromPostgres() {
+    try {
+      console.log("[SUPABASE] Mensinkronkan data langsung dari cloud PostgreSQL...");
+      // 1. RT RW Areas
+      const areasRes = await pgPool.query(`
+        SELECT id, kelurahan, kecamatan, kota, rw_code, rt_code, monitoring_post,
+               ST_Y(geom_center) as center_lat, ST_X(geom_center) as center_lng,
+               ST_AsGeoJSON(geom_polygon) as polygon_geojson
+        FROM rt_rw_areas
+      `);
+      if (areasRes.rows.length > 0) {
+        this.data.areas = areasRes.rows.map(r => ({
+          id: r.id,
+          kelurahan: r.kelurahan,
+          kecamatan: r.kecamatan,
+          kota: r.kota,
+          rw_code: r.rw_code,
+          rt_code: r.rt_code,
+          monitoring_post: r.monitoring_post,
+          geom_center: { lat: Number(r.center_lat), lng: Number(r.center_lng) },
+          geom_polygon: JSON.parse(r.polygon_geojson).coordinates[0].map(c => [c[1], c[0]])
+        }));
+      }
+
+      // 2. Users
+      const usersRes = await pgPool.query(`SELECT * FROM users`);
+      if (usersRes.rows.length > 0) {
+        this.data.users = usersRes.rows;
+      }
+
+      // 3. Hazard Reports
+      const reportsRes = await pgPool.query(`
+        SELECT id, reporter_id, reporter_name, reporter_phone, rt_rw_id, kelurahan, rw_code, rt_code,
+               hazard_type, hazard_type_label, description, exact_address,
+               ST_Y(exact_location) as lat, ST_X(exact_location) as lng,
+               raw_photo_url, blurred_photo_url, privacy_masked, ai_flag, ai_confidence, ai_reasoning,
+               ai_suggested_severity, ai_suggested_action, recommended_volunteers, status, verified_by_id,
+               verified_at, created_at
+        FROM hazard_reports
+        ORDER BY created_at DESC
+      `);
+      if (reportsRes.rows.length > 0) {
+        this.data.reports = reportsRes.rows.map(r => ({
+          ...r,
+          exact_location: {
+            address: r.exact_address,
+            lat: Number(r.lat),
+            lng: Number(r.lng)
+          }
+        }));
+      }
+
+      // 4. Cleanup Tasks
+      const tasksRes = await pgPool.query(`SELECT * FROM cleanup_tasks ORDER BY created_at DESC`);
+      if (tasksRes.rows.length > 0) {
+        this.data.cleanup_tasks = tasksRes.rows;
+      }
+
+      // 5. Flood Logs
+      const floodRes = await pgPool.query(`SELECT * FROM flood_response_logs ORDER BY created_at DESC`);
+      if (floodRes.rows.length > 0) {
+        this.data.flood_response_logs = floodRes.rows;
+      }
+
+      // 6. Telegram Messages
+      const tgRes = await pgPool.query(`SELECT * FROM telegram_messages ORDER BY created_at DESC`);
+      if (tgRes.rows.length > 0) {
+        this.data.telegram_messages = tgRes.rows;
+      }
+
+      console.log(`[SUPABASE SUKSES] Data cloud tersinkron: ${this.data.reports?.length || 0} laporan, ${this.data.users?.length || 0} akun RT/RW.`);
+    } catch (err) {
+      console.warn("[SUPABASE SYNC WARNING] Gagal sinkronisasi dari cloud, menggunakan data lokal:", err.message);
+    }
   }
 
   loadData() {
@@ -547,7 +626,94 @@ class Database {
     if (!this.data[table]) this.data[table] = [];
     this.data[table].unshift(item);
     this.saveData();
+
+    // Simpan langsung ke cloud PostgreSQL (Supabase) secara asinkron
+    if (pgPool) {
+      this.persistInsertToPostgres(table, item).catch(err => {
+        console.error(`[POSTGRES INSERT ERROR] ${table}:`, err.message);
+      });
+    }
+
     return item;
+  }
+
+  async persistInsertToPostgres(table, item) {
+    if (!pgPool) return;
+
+    if (table === 'reports') {
+      const lat = item.exact_location?.lat || -6.2088;
+      const lng = item.exact_location?.lng || 106.8456;
+      await pgPool.query(`
+        INSERT INTO hazard_reports (
+          id, reporter_id, reporter_name, reporter_phone, rt_rw_id, kelurahan, rw_code, rt_code,
+          hazard_type, hazard_type_label, description, exact_address, exact_location,
+          raw_photo_url, blurred_photo_url, privacy_masked, ai_flag, ai_confidence, ai_reasoning,
+          ai_suggested_severity, ai_suggested_action, recommended_volunteers, status, created_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+          ST_SetSRID(ST_MakePoint($13, $14), 4326),
+          $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          status = EXCLUDED.status,
+          verified_by_id = EXCLUDED.verified_by_id,
+          verified_at = EXCLUDED.verified_at
+      `, [
+        item.id, item.reporter_id || 'warga-anon', item.reporter_name || 'Warga Anonim', item.reporter_phone || '0812-xxxx',
+        item.rt_rw_id || 'area-km-04-02', item.kelurahan || 'Kampung Melayu', item.rw_code || 'RW 02', item.rt_code || 'RT 04',
+        item.hazard_type || 'Clogged_Drain', item.hazard_type_label || 'Saluran Tersumbat', item.description || '',
+        item.exact_location?.address || 'Jakarta', lng, lat,
+        item.raw_photo_url || item.blurred_photo_url || '', item.blurred_photo_url || item.raw_photo_url || '',
+        item.privacy_masked ?? true, item.ai_flag || 'Valid', item.ai_confidence || 0.95, item.ai_reasoning || '',
+        item.ai_suggested_severity || 'Sedang', item.ai_suggested_action || '', item.recommended_volunteers || 6,
+        item.status || 'Pending', item.created_at || new Date().toISOString()
+      ]);
+      console.log(`[POSTGRES] Laporan ${item.id} berhasil tersimpan permanen di cloud Supabase!`);
+    } else if (table === 'cleanup_tasks') {
+      await pgPool.query(`
+        INSERT INTO cleanup_tasks (
+          id, hazard_report_id, rt_rw_id, title, description, deadline_at,
+          target_volunteers, confirmed_volunteers, action_plan, status,
+          verified_by_id, after_photo_url, closed_at, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        ON CONFLICT (id) DO UPDATE SET
+          status = EXCLUDED.status,
+          confirmed_volunteers = EXCLUDED.confirmed_volunteers,
+          after_photo_url = EXCLUDED.after_photo_url,
+          closed_at = EXCLUDED.closed_at
+      `, [
+        item.id, item.hazard_report_id, item.rt_rw_id, item.title, item.description, item.deadline_at,
+        item.target_volunteers || 5, item.confirmed_volunteers || 0, item.action_plan, item.status || 'In_Progress',
+        item.verified_by_id, item.after_photo_url, item.closed_at, item.created_at || new Date().toISOString()
+      ]);
+      console.log(`[POSTGRES] Tugas Gotong Royong ${item.id} berhasil tersimpan di cloud Supabase!`);
+    } else if (table === 'flood_response_logs') {
+      await pgPool.query(`
+        INSERT INTO flood_response_logs (
+          id, rt_rw_id, water_depth_cm, has_vulnerable_people, vulnerable_count,
+          priority_score, priority_level, status, handled_by_ngo_id, handled_at, notes, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT (id) DO UPDATE SET
+          status = EXCLUDED.status,
+          handled_by_ngo_id = EXCLUDED.handled_by_ngo_id,
+          handled_at = EXCLUDED.handled_at
+      `, [
+        item.id, item.rt_rw_id, item.water_depth_cm || 0, item.has_vulnerable_people ?? false, item.vulnerable_count || 0,
+        item.priority_score, item.priority_level, item.status || 'Needs_Evacuation', item.handled_by_ngo_id,
+        item.handled_at, item.notes, item.created_at || new Date().toISOString()
+      ]);
+      console.log(`[POSTGRES] Log Evakuasi ${item.id} berhasil tersimpan di cloud Supabase!`);
+    } else if (table === 'telegram_messages') {
+      await pgPool.query(`
+        INSERT INTO telegram_messages (id, recipient_name, chat_id, area_label, message_type, message_content, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (id) DO NOTHING
+      `, [
+        item.id, item.to || item.recipient_name || 'RT', item.chat_id || '', item.area_label || '',
+        item.type || item.message_type || 'NOTIFICATION', item.message || item.message_content || '',
+        item.timestamp || item.created_at || new Date().toISOString()
+      ]);
+    }
   }
 
   update(table, id, patch) {
@@ -556,13 +722,93 @@ class Database {
     if (index === -1) return null;
     this.data[table][index] = { ...this.data[table][index], ...patch, updated_at: new Date().toISOString() };
     this.saveData();
+
+    // Update langsung ke cloud PostgreSQL (Supabase)
+    if (pgPool) {
+      this.persistUpdateToPostgres(table, id, patch).catch(err => {
+        console.error(`[POSTGRES UPDATE ERROR] ${table} ${id}:`, err.message);
+      });
+    }
+
     return this.data[table][index];
+  }
+
+  async persistUpdateToPostgres(table, id, patch) {
+    if (!pgPool) return;
+
+    if (table === 'reports') {
+      const fields = [];
+      const values = [id];
+      let idx = 2;
+      for (const [key, val] of Object.entries(patch)) {
+        if (['status', 'verified_by_id', 'verified_at', 'task_id'].includes(key)) {
+          fields.push(`${key} = $${idx}`);
+          values.push(val);
+          idx++;
+        }
+      }
+      if (fields.length > 0) {
+        await pgPool.query(`UPDATE hazard_reports SET ${fields.join(', ')} WHERE id = $1`, values);
+        console.log(`[POSTGRES] Verifikasi Laporan ${id} tersimpan di cloud Supabase!`);
+      }
+    } else if (table === 'cleanup_tasks') {
+      const fields = [];
+      const values = [id];
+      let idx = 2;
+      for (const [key, val] of Object.entries(patch)) {
+        if (['status', 'confirmed_volunteers', 'after_photo_url', 'closed_at'].includes(key)) {
+          fields.push(`${key} = $${idx}`);
+          values.push(val);
+          idx++;
+        }
+      }
+      if (fields.length > 0) {
+        await pgPool.query(`UPDATE cleanup_tasks SET ${fields.join(', ')} WHERE id = $1`, values);
+        console.log(`[POSTGRES] Status Tugas ${id} tersimpan di cloud Supabase!`);
+      }
+    } else if (table === 'flood_response_logs') {
+      const fields = [];
+      const values = [id];
+      let idx = 2;
+      for (const [key, val] of Object.entries(patch)) {
+        if (['status', 'handled_by_ngo_id', 'handled_at'].includes(key)) {
+          fields.push(`${key} = $${idx}`);
+          values.push(val);
+          idx++;
+        }
+      }
+      if (fields.length > 0) {
+        await pgPool.query(`UPDATE flood_response_logs SET ${fields.join(', ')} WHERE id = $1`, values);
+      }
+    } else if (table === 'users') {
+      const fields = [];
+      const values = [id];
+      let idx = 2;
+      for (const [key, val] of Object.entries(patch)) {
+        if (['telegram_chat_id', 'is_telegram_synced', 'telegram_subscribe_token'].includes(key)) {
+          fields.push(`${key} = $${idx}`);
+          values.push(val);
+          idx++;
+        }
+      }
+      if (fields.length > 0) {
+        await pgPool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = $1`, values);
+      }
+    }
   }
 
   delete(table, id) {
     if (!this.data[table]) return false;
     this.data[table] = this.data[table].filter(item => item.id !== id);
     this.saveData();
+
+    if (pgPool) {
+      const tableName = table === 'reports' ? 'hazard_reports' : table;
+      pgPool.query(`DELETE FROM ${tableName} WHERE id = $1`, [id]).catch(err => {
+        console.error(`[POSTGRES DELETE ERROR] ${table} ${id}:`, err.message);
+      });
+    }
+
     return true;
   }
 
