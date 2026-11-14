@@ -131,6 +131,7 @@ NEXA SiagaRT/
    GEMINI_API_KEY=kunci_api_gemini_anda
    TELEGRAM_BOT_TOKEN=token_bot_telegram_anda
    ADMIN_SECRET_KEY=kunci_rahasia_admin_produksi
+   DATABASE_URL=link_database
    PORT=5001
    NODE_ENV=development
    ```
