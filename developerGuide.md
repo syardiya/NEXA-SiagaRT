@@ -243,7 +243,12 @@ Sistem menyediakan integrasi bot Telegram dua arah pada `server/telegramService.
    - Lingkungan Pengembangan dan Internal: Menggunakan background long-polling (`getUpdates`). Metode ini memungkinkan server lokal atau server di balik NAT menerima pesan secara instan tanpa memerlukan IP publik atau sertifikat domain HTTPS.
    - Lingkungan Produksi Cloud: Dapat beralih menggunakan endpoint webhook HTTPS terdaftar via `setWebhook` yang diarahkan ke rute `/api/telegram/webhook`.
 
-3. Penyiaran Instruksi Tugas:
+3. Validasi Keamanan Webhook Telegram:
+   - Endpoint `/api/telegram/webhook` pada mode produksi memvalidasi keaslian panggilan melalui header resmi `X-Telegram-Bot-Api-Secret-Token`.
+   - Pemeriksaan dilakukan menggunakan fungsi perbandingan waktu konstan `crypto.timingSafeEqual` terhadap variabel lingkungan `TELEGRAM_WEBHOOK_SECRET` guna mencegah pemalsuan identitas server pengirim.
+   - Endpoint pembangkitan token `/api/telegram/generate-token` dilindungi ketat menggunakan otentikasi sesi `requireAuth(['RT_Leader', 'Admin'])`.
+
+4. Penyiaran Instruksi Tugas:
    Setelah tugas gotong royong disahkan oleh Ketua RT, server secara asinkron memformat pesan berstruktur rapi yang berisi batas waktu BMKG, lokasi koordinasi, dan daftar alat kerja untuk dikirimkan langsung ke ponsel Ketua RT.
 
 ---
@@ -289,6 +294,7 @@ Berikut adalah langkah-langkah transisi dari penyimpanan lokal menuju infrastruk
    GEMINI_API_KEY=kunci_api_resmi_dari_google_ai_studio
    TELEGRAM_BOT_TOKEN=token_bot_resmi_dari_botfather
    TELEGRAM_BOT_USERNAME=NexaSiagaBot
+   TELEGRAM_WEBHOOK_SECRET=token_rahasia_acak_untuk_verifikasi_webhook
    ```
 
 3. Pengelolaan Proses dan Reverse Proxy:

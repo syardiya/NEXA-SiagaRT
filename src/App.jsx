@@ -260,9 +260,14 @@ export default function App() {
 
   const handleSimulateTelegramWebhook = async (payload) => {
     try {
+      const token = localStorage.getItem('nexa_auth_token');
       const res = await fetch('/api/telegram/webhook', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-simulator-request': 'true',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
         body: JSON.stringify(payload)
       });
       const data = await res.json();
@@ -270,7 +275,7 @@ export default function App() {
         showToast("✓ Webhook Telegram berhasil disinkronkan ke RT!");
         fetchData();
       } else {
-        alert(data.message);
+        alert(data.message || data.error);
       }
     } catch (err) {
       alert(err.message);

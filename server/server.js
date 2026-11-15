@@ -929,13 +929,75 @@ app.get('/api/telegram/info', async (req, res) => {
   res.json({ success: true, bot_username: botUsername });
 });
 
-app.post('/api/telegram/generate-token', async (req, res) => {
-  const { rt_code, user_id } = req.body;
-  const result = await generateTelegramToken(rt_code, user_id || 'user-rt-nuraini');
-  res.json({ success: true, ...result });
+// Generate token Telegram: Hanya untuk Ketua RT yang login atau Admin
+app.post('/api/telegram/generate-token', requireAuth(['RT_Leader', 'Admin']), async (req, res) => {
+  try {
+    const targetUserId = req.user.role === 'Admin' ? (req.body.user_id || req.user.userId) : req.user.userId;
+    const users = db.get('users');
+    const user = users.find(u => u.id === targetUserId);
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: "Akun pengguna tidak ditemukan." });
+    }
+
+    const result = await generateTelegramToken(user.rt_code || user.area_label, targetUserId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
+// Webhook Telegram Resmi: Diverifikasi dengan secret token
 app.post('/api/telegram/webhook', (req, res) => {
+  const incomingSecret = req.headers['x-telegram-bot-api-secret-token'];
+  const configuredSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const isSimulator = req.headers['x-simulator-request'] === 'true';
+
+  // Mode Produksi: Wajibkan X-Telegram-Bot-Api-Secret-Token resmi dari server Telegram
+  if (process.env.NODE_ENV === 'production') {
+    if (!configuredSecret) {
+      return res.status(500).json({
+        success: false,
+        error: "Server Configuration Error: TELEGRAM_WEBHOOK_SECRET belum dikonfigurasi di lingkungan produksi."
+      });
+    }
+
+    if (!incomingSecret || typeof incomingSecret !== 'string') {
+      return res.status(401).json({
+        success: false,
+        error: "401 Unauthorized: Header X-Telegram-Bot-Api-Secret-Token resmi Telegram wajib disertakan."
+      });
+    }
+
+    const bufIncoming = Buffer.from(incomingSecret);
+    const bufExpected = Buffer.from(configuredSecret);
+    if (bufIncoming.length !== bufExpected.length || !crypto.timingSafeEqual(bufIncoming, bufExpected)) {
+      return res.status(403).json({
+        success: false,
+        error: "403 Forbidden: Secret token Telegram tidak cocok atau tidak sah."
+      });
+    }
+  } else {
+    // Mode Development / Uji Coba:
+    // Jika secret disetel dan bukan request simulasi web, verifikasi keabsahannya
+    if (configuredSecret && !isSimulator) {
+      if (!incomingSecret || typeof incomingSecret !== 'string') {
+        return res.status(401).json({
+          success: false,
+          error: "401 Unauthorized: Header X-Telegram-Bot-Api-Secret-Token diperlukan."
+        });
+      }
+      const bufIncoming = Buffer.from(incomingSecret);
+      const bufExpected = Buffer.from(configuredSecret);
+      if (bufIncoming.length !== bufExpected.length || !crypto.timingSafeEqual(bufIncoming, bufExpected)) {
+        return res.status(403).json({
+          success: false,
+          error: "403 Forbidden: Secret token Telegram tidak cocok."
+        });
+      }
+    }
+  }
+
   const result = handleTelegramWebhook(req.body);
   res.json(result);
 });
