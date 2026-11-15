@@ -261,7 +261,7 @@ export default function App() {
   const handleSimulateTelegramWebhook = async (payload) => {
     try {
       const token = localStorage.getItem('nexa_auth_token');
-      const res = await fetch('/api/telegram/webhook', {
+      const res = await fetch('/api/telegram/simulate', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

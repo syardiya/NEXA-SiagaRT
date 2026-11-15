@@ -84,10 +84,10 @@ export default function TelegramSimulatorModal({
               target="_blank"
               rel="noopener noreferrer"
               title="Buka langsung di aplikasi Telegram HP"
-              className="p-1.5 text-sky-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1 text-[11px] bg-slate-800/80 px-2.5 py-1 border border-sky-500/30"
+              className="p-1.5 text-sky-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-[11px] bg-sky-500/10 px-3 py-1.5 border border-sky-500/40 font-semibold"
             >
-              <span>Buka di Telegram</span>
-              <ExternalLink className="w-3 h-3" />
+              <span>Buka di Aplikasi Telegram HP</span>
+              <ExternalLink className="w-3.5 h-3.5" />
             </a>
             <button
               onClick={onClose}
@@ -104,7 +104,7 @@ export default function TelegramSimulatorModal({
           <div className="text-center my-2">
             <span className="text-[11px] bg-[#182533] text-slate-300 px-3.5 py-1.5 rounded-full border border-slate-800 shadow-sm inline-flex items-center gap-1.5">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Kanal Notifikasi Otomatis Pengurus RT & RW</span>
+              <span>Simulasi Notifikasi Bot Lingkungan RT/RW</span>
             </span>
           </div>
 
@@ -115,19 +115,19 @@ export default function TelegramSimulatorModal({
                 <Bot className="w-6 h-6" />
               </div>
               <div>
-                <h4 className="text-sm font-bold text-white">Hubungkan Notifikasi ke Akun Ini</h4>
+                <h4 className="text-sm font-bold text-white">Simulasi Notifikasi Telegram di Layar Web</h4>
                 <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto leading-relaxed">
-                  Tekan tombol di bawah untuk mengaktifkan notifikasi laporan warga dan jadwal gotong royong langsung ke bot ini.
+                  Tekan tombol di bawah untuk menguji alur notifikasi bot secara instan di layar ini tanpa membuka HP.
                 </p>
               </div>
 
               <button
                 onClick={handleStartBot}
                 disabled={loading}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-sky-500/30 transition-all flex items-center justify-center gap-2"
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-sky-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-white" />
-                <span>{loading ? "Menghubungkan..." : "Mulai Berlangganan (Start Bot)"}</span>
+                <span>{loading ? "Menghubungkan..." : "Uji Coba Hubungkan Bot (Mulai Notifikasi)"}</span>
               </button>
             </div>
           )}
