@@ -42,48 +42,162 @@ export async function generateTelegramToken(rt_code, user_id) {
   };
 }
 
-export function handleTelegramWebhook(payload) {
-  // Telegram sends { message: { chat: { id }, text: "/start TOKEN_RT..." } }
+export async function sendTelegramDirect(chatId, text, parseMode = 'Markdown') {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return false;
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+        parse_mode: parseMode
+      })
+    });
+    const data = await res.json();
+    if (!data.ok && parseMode) {
+      // Retry without markdown formatting if parsing entities failed
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: text.replace(/[*_`\[\]]/g, '')
+        })
+      });
+    }
+    return true;
+  } catch (err) {
+    console.warn("Direct Telegram message failed:", err.message);
+    return false;
+  }
+}
+
+export async function processIncomingTelegramMessage({ chatId, text, senderName, from }) {
+  const cleanText = (text || '').trim();
+  const lowerText = cleanText.toLowerCase();
+  const users = db.get('users');
+  const user = users.find(u => String(u.telegram_chat_id) === String(chatId));
+
+  // 1. Check if token link: /start TOKEN_...
+  if (cleanText.startsWith('/start TOKEN_') || cleanText.startsWith('TOKEN_')) {
+    const token = cleanText.replace('/start ', '').trim();
+    const targetUser = users.find(u => u.telegram_subscribe_token === token);
+
+    if (!targetUser) {
+      const errMsg = `⚠️ *Token Verifikasi Tidak Dikenali*\n\nToken \`${token}\` tidak terdaftar atau telah kadaluarsa. Silakan klik ulang tombol *Hubungkan Bot Telegram* di Dashboard RT web NEXA SiagaRT.`;
+      await sendTelegramDirect(chatId, errMsg);
+      return { success: false, message: `Token ${token} tidak valid atau kadaluarsa.` };
+    }
+
+    db.update('users', targetUser.id, {
+      telegram_chat_id: String(chatId),
+      is_telegram_synced: true
+    });
+
+    const welcomeMsg = `✅ *BERHASIL TERHUBUNG DENGAN NEXA SIAGART!*\n\nHalo *${targetUser.full_name}*,\nAkun Telegram Anda resmi terverifikasi untuk wilayah *${targetUser.area_label}*.\n\n🔔 *Notifikasi Otomatis yang Akan Anda Terima:*\n1. Peringatan dini jika ada warga RT mengirim laporan gorong-gorong tersumbat.\n2. Hitung mundur waktu pengerukan sebelum hujan lebat BMKG tiba.\n3. Sinyal bahaya banjir 2-of-3 Rule Engine.\n\n💬 *Perintah Cepat yang Bisa Anda Ketik:*\n• \`/status\` atau *cek* — Pantau cuaca BMKG & tinggi pintu air live\n• \`/tugas\` — Pantau tugas gotong royong aktif\n• \`/link\` — Buka link dashboard web\n• \`/help\` — Bantuan perintah bot\n\n_Salam Tanggap Bencana Jakarta!_`;
+
+    sendTelegramNotification({
+      toUser: targetUser,
+      message: welcomeMsg,
+      type: "WELCOME"
+    });
+
+    return {
+      success: true,
+      user_id: targetUser.id,
+      user_name: targetUser.full_name,
+      area_label: targetUser.area_label,
+      chat_id: chatId,
+      message: "Telegram bot berhasil disinkronisasi!"
+    };
+  }
+
+  // 2. /start biasa (tanpa token)
+  if (lowerText === '/start') {
+    let reply = '';
+    if (user) {
+      reply = `👋 *Halo ${user.full_name}!*\n\nAkun Anda sudah terhubung untuk wilayah *${user.area_label}*.\n\nKetik \`/status\` untuk memantau kondisi terkini wilayah Anda, atau \`/help\` untuk melihat menu perintah.`;
+    } else {
+      reply = `👋 *Halo ${senderName || 'Bapak/Ibu'}!*\n\nSelamat datang di Bot *NEXA SiagaRT*.\n\nUntuk menyambungkan bot ini dengan wilayah RT Anda:\n1. Buka aplikasi web *NEXA SiagaRT*\n2. Masuk ke *Dashboard RT*\n3. Klik tombol *Hubungkan Bot Telegram*\n4. Klik tautan otomatis yang tersedia.\n\nKetik \`/help\` untuk melihat daftar bantuan.`;
+    }
+    await sendTelegramDirect(chatId, reply);
+    return { success: true, message: "Start greeted" };
+  }
+
+  // 3. /status, cek, cuaca, banjir, kondisi
+  if (lowerText === '/status' || lowerText === '/cek' || lowerText.includes('status') || lowerText.includes('cuaca') || lowerText.includes('pintu air') || lowerText.includes('banjir') || lowerText.includes('cek')) {
+    const bpbdPosts = db.get('bpbd_posts') || [];
+    const katulampa = bpbdPosts.find(p => p.id === 'pos-katulampa') || bpbdPosts[0] || { status: 'Siaga 4 (Normal)', water_level_cm: 60 };
+    const manggarai = bpbdPosts.find(p => p.id === 'pos-manggarai') || bpbdPosts[1] || { status: 'Siaga 4 (Normal)', water_level_cm: 650 };
+    
+    const forecast = db.data?.bmkg_forecast || {};
+    const warning = forecast.active_warning || {};
+    const curInterval = forecast.intervals?.[0] || {};
+
+    const reports = db.get('reports') || [];
+    const pendingReports = reports.filter(r => r.status === 'Pending').length;
+
+    const tasks = db.get('cleanup_tasks') || [];
+    const activeTasks = tasks.filter(t => t.status === 'In_Progress').length;
+
+    const areaTitle = user ? user.area_label : "DKI Jakarta (Pusat)";
+
+    const statusMsg = `📊 *STATUS KONDISI WILAYAH (LIVE)*\n📍 *Wilayah:* ${areaTitle}\n\n🌦️ *Prakiraan Cuaca BMKG:*\n• Cuaca: *${curInterval.weather || 'Berawan Tebal'}* (${curInterval.temperature || '28°C'})\n• Peluang Hujan: *${curInterval.rain_probability || '75%'}*\n• Status Peringatan: ${warning.is_active ? '⚠️ *Waspada Hujan Lebat*' : '✅ Kondusif'}\n\n🌊 *Pantauan Pintu Air Utama (BPBD):*\n• Katulampa: *${katulampa.status}* (${katulampa.water_level_cm} cm)\n• Manggarai: *${manggarai.status}* (${manggarai.water_level_cm} cm)\n\n📋 *Laporan & Gotong Royong:*\n• Laporan Warga Menunggu Verifikasi: *${pendingReports} laporan*\n• Tugas Gotong Royong Aktif: *${activeTasks} aksi*\n\n_Ketik /tugas untuk rincian gotong royong, atau /link untuk membuka dasbor web._`;
+
+    await sendTelegramDirect(chatId, statusMsg);
+    return { success: true, message: "Status sent", data: { areaTitle, pendingReports, activeTasks } };
+  }
+
+  // 4. /tugas, gotong royong, relawan
+  if (lowerText === '/tugas' || lowerText.includes('tugas') || lowerText.includes('gotong royong') || lowerText.includes('relawan')) {
+    const tasks = db.get('cleanup_tasks') || [];
+    const activeTasks = tasks.filter(t => t.status === 'In_Progress');
+
+    let taskMsg = '';
+    if (activeTasks.length === 0) {
+      taskMsg = `✅ *TIDAK ADA TUGAS AKTIF SAAT INI*\n\nSeluruh saluran drainase dan got di wilayah terpantau bersih dan tidak ada pengerukan yang mendesak.\n\nKetik \`/status\` untuk cek cuaca BMKG.`;
+    } else {
+      taskMsg = `🧹 *DAFTAR AKSI GOTONG ROYONG AKTIF (${activeTasks.length}):*\n\n` +
+        activeTasks.slice(0, 3).map((t, idx) => {
+          return `*${idx + 1}. ${t.title}*\n📍 Lokasi: ${t.exact_address || t.kelurahan || 'Wilayah RT'}\n⏱️ ${t.rain_forecast_note || 'Tenggat BMKG aktif'}\n👥 Kebutuhan: ${t.volunteers_count || 6} Relawan Warga`;
+        }).join('\n\n') +
+        `\n\n_Buka dasbor web NEXA SiagaRT untuk melihat foto lokasi atau menyelesaikan tugas._`;
+    }
+
+    await sendTelegramDirect(chatId, taskMsg);
+    return { success: true, message: "Tasks sent" };
+  }
+
+  // 5. /link, web, dashboard
+  if (lowerText === '/link' || lowerText.includes('link') || lowerText.includes('web') || lowerText.includes('dashboard') || lowerText.includes('buka')) {
+    const linkMsg = `🌐 *APLIKASI WEB NEXA SIAGART*\n\nSilakan akses dashboard melalui peramban:\n🔗 https://nexa-siagart.onrender.com\n\n_Masuk dengan Nomor HP & PIN untuk verifikasi laporan dan kelola relawan warga._`;
+    await sendTelegramDirect(chatId, linkMsg);
+    return { success: true, message: "Link sent" };
+  }
+
+  // 6. Default Fallback & /help
+  const helpMsg = `🤖 *Halo ${user ? user.full_name : (senderName || 'Bapak/Ibu')}!*\n\nSaya adalah Asisten Bot *NEXA SiagaRT* untuk koordinasi mitigasi banjir & gotong royong warga.\n\n*Pilihan Perintah yang Dapat Digunakan:*\n🔹 \`/status\` atau *cek* — Cek cuaca BMKG, tinggi pintu air, dan status laporan\n🔹 \`/tugas\` — Pantau aksi gotong royong & relawan aktif\n🔹 \`/link\` — Link menuju aplikasi web dasbor\n🔹 \`/help\` — Menampilkan panduan bantuan ini\n\n🔔 *Pengingat:* Bot ini akan *otomatis membunyikan notifikasi* jika ada warga melapor sumbatan got atau jika terdeteksi ancaman banjir mendadak!`;
+
+  await sendTelegramDirect(chatId, helpMsg);
+  return { success: true, message: "Help sent" };
+}
+
+export async function handleTelegramWebhook(payload) {
+  // Telegram sends { message: { chat: { id }, text: "..." } }
   const message = payload?.message || payload;
   const text = (message.text || "").trim();
   const chatId = String(message.chat?.id || message.chat_id || Math.floor(10000000 + Math.random() * 90000000));
-  const senderName = message.from?.first_name || "RT Leader";
+  const senderName = message.from?.first_name || message.from?.name || "RT Leader";
 
-  if (!text.startsWith('/start ')) {
-    return { success: false, message: "Perintah tidak dikenali. Gunakan /start <TOKEN>" };
-  }
-
-  const token = text.replace('/start ', '').trim();
-  const users = db.get('users');
-  const user = users.find(u => u.telegram_subscribe_token === token);
-
-  if (!user) {
-    return { success: false, message: `Token ${token} tidak valid atau kadaluarsa.` };
-  }
-
-  // Update user with telegram chat id
-  db.update('users', user.id, {
-    telegram_chat_id: chatId,
-    is_telegram_synced: true
+  return await processIncomingTelegramMessage({
+    chatId,
+    text,
+    senderName,
+    from: message.from
   });
-
-  // Welcome response
-  const welcomeText = `✅ *BERHASIL TERHUBUNG DENGAN NEXA SIAGART!*\n\nHalo ${user.full_name},\nAkun Telegram Anda kini terverifikasi untuk wilayah *${user.area_label}*.\n\nAnda akan otomatis menerima notifikasi real-time jika:\n1. Ada laporan warga yang butuh verifikasi.\n2. Muncul tenggat waktu pengerukan BMKG.\n3. Peringatan dini banjir 2-of-3 Rule Engine terpicu.\n\n_Salam Siaga Bencana Jakarta!_`;
-
-  sendTelegramNotification({
-    toUser: user,
-    message: welcomeText,
-    type: "WELCOME"
-  });
-
-  return {
-    success: true,
-    user_id: user.id,
-    user_name: user.full_name,
-    area_label: user.area_label,
-    chat_id: chatId,
-    message: "Telegram bot berhasil disinkronisasi!"
-  };
 }
 
 export function sendTelegramNotification({ toUser, message, type = "ALERT" }) {
@@ -140,33 +254,15 @@ export function startTelegramPolling() {
             const msg = update.message;
             const text = (msg.text || '').trim();
             const chatId = msg.chat?.id;
+            const senderName = msg.from?.first_name || msg.from?.name || "Pengguna Telegram";
 
-            if (text.startsWith('/start TOKEN_')) {
-              handleTelegramWebhook({
-                chat_id: chatId,
-                text: text,
+            if (chatId) {
+              await processIncomingTelegramMessage({
+                chatId,
+                text,
+                senderName,
                 from: msg.from
               });
-            } else if (text === '/start' || text.startsWith('/start')) {
-              fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  chat_id: chatId,
-                  text: `👋 *Halo ${msg.from?.first_name || 'Bapak/Ibu'}!*\n\nSelamat datang di Bot *NEXA SiagaRT*.\nUntuk menyambungkan bot ini dengan akun RT Anda, silakan buka aplikasi web NEXA SiagaRT, masuk ke Dashboard RT, lalu klik tombol *Hubungkan Bot Telegram*.\n\nLink unik akan otomatis memverifikasi wilayah RT Anda.`,
-                  parse_mode: 'Markdown'
-                })
-              }).catch(() => {});
-            } else if (text === '/help' || text === '/status') {
-              fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  chat_id: chatId,
-                  text: `ℹ️ *Status NEXA SiagaRT Bot*\nBot aktif dan siap menerima peringatan banjir darurat serta verifikasi gotong royong warga.`,
-                  parse_mode: 'Markdown'
-                })
-              }).catch(() => {});
             }
           }
         }

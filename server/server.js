@@ -948,9 +948,9 @@ app.post('/api/telegram/generate-token', requireAuth(['RT_Leader', 'Admin']), as
 });
 
 // Simulasi Telegram Internal dari Web Dashboard: Aman untuk demonstrasi visual
-app.post('/api/telegram/simulate', (req, res) => {
+app.post('/api/telegram/simulate', async (req, res) => {
   try {
-    const result = handleTelegramWebhook(req.body);
+    const result = await handleTelegramWebhook(req.body);
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -958,14 +958,14 @@ app.post('/api/telegram/simulate', (req, res) => {
 });
 
 // Webhook Telegram Resmi: Diverifikasi dengan secret token
-app.post('/api/telegram/webhook', (req, res) => {
+app.post('/api/telegram/webhook', async (req, res) => {
   const incomingSecret = req.headers['x-telegram-bot-api-secret-token'];
   const configuredSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const isSimulator = req.headers['x-simulator-request'] === 'true';
 
   // Jika dipicu dari tombol simulator di antarmuka web yang sah:
   if (isSimulator) {
-    const result = handleTelegramWebhook(req.body);
+    const result = await handleTelegramWebhook(req.body);
     return res.json(result);
   }
 
@@ -988,7 +988,7 @@ app.post('/api/telegram/webhook', (req, res) => {
     }
   }
 
-  const result = handleTelegramWebhook(req.body);
+  const result = await handleTelegramWebhook(req.body);
   res.json(result);
 });
 
