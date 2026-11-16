@@ -10,7 +10,7 @@ import RegisterModal from './components/RegisterModal';
 import LoginModal from './components/LoginModal';
 import ImpactStatsBar from './components/ImpactStatsBar';
 import { 
-  Camera, ShieldCheck, Flame, CheckCircle, Sparkles, MapPin, ArrowRight
+  Camera, ShieldCheck, Flame, CheckCircle, Sparkles, MapPin
 } from 'lucide-react';
 
 export default function App() {
@@ -336,14 +336,6 @@ export default function App() {
                   >
                     <Camera className="w-4 h-4" />
                     <span>Lapor Bahaya / Saluran Tersumbat</span>
-                  </button>
-
-                  <button
-                    onClick={() => setCurrentRole('RT_LEADER')}
-                    className="flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs md:text-sm transition-all"
-                  >
-                    <span>Masuk Dasbor Ketua RT</span>
-                    <ArrowRight className="w-4 h-4 text-slate-400" />
                   </button>
                 </div>
               </div>
