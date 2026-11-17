@@ -71,10 +71,10 @@ export default function TelegramSimulatorModal({
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <h3 className="font-bold text-white text-sm">NEXA Siaga Bot</h3>
+                <h3 className="font-bold text-white text-sm">NEXA Bot</h3>
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               </div>
-              <p className="text-[11px] text-sky-300">@{botUsername} • Siaga Banjir Jakarta</p>
+              <p className="text-[11px] text-sky-300">@{botUsername} • Asisten Siaga RT/RW & Warga</p>
             </div>
           </div>
 
@@ -83,10 +83,10 @@ export default function TelegramSimulatorModal({
               href={realDeepLink}
               target="_blank"
               rel="noopener noreferrer"
-              title="Buka langsung di aplikasi Telegram HP"
+              title="Buka NEXA Bot langsung di HP"
               className="p-1.5 text-sky-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-[11px] bg-sky-500/10 px-3 py-1.5 border border-sky-500/40 font-semibold"
             >
-              <span>Buka di Aplikasi Telegram HP</span>
+              <span>Buka NEXA Bot di HP</span>
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
             <button
@@ -98,13 +98,13 @@ export default function TelegramSimulatorModal({
           </div>
         </div>
 
-        {/* Telegram Chat Message History */}
+        {/* NEXA Bot Chat Message History */}
         <div className="flex-1 bg-[#0e1621] p-4 overflow-y-auto space-y-3">
           {/* Welcome Intro Banner */}
           <div className="text-center my-2">
             <span className="text-[11px] bg-[#182533] text-slate-300 px-3.5 py-1.5 rounded-full border border-slate-800 shadow-sm inline-flex items-center gap-1.5">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Simulasi Notifikasi Bot Lingkungan RT/RW</span>
+              <span>Simulasi Notifikasi NEXA Bot Lingkungan RT/RW</span>
             </span>
           </div>
 
@@ -115,9 +115,9 @@ export default function TelegramSimulatorModal({
                 <Bot className="w-6 h-6" />
               </div>
               <div>
-                <h4 className="text-sm font-bold text-white">Simulasi Notifikasi Telegram di Layar Web</h4>
+                <h4 className="text-sm font-bold text-white">Simulasi Notifikasi NEXA Bot di Layar Web</h4>
                 <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto leading-relaxed">
-                  Tekan tombol di bawah untuk menguji alur notifikasi bot secara instan di layar ini tanpa membuka HP.
+                  Tekan tombol di bawah untuk menguji alur notifikasi NEXA Bot secara instan di layar ini.
                 </p>
               </div>
 
@@ -127,7 +127,7 @@ export default function TelegramSimulatorModal({
                 className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-sky-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-white" />
-                <span>{loading ? "Menghubungkan..." : "Uji Coba Hubungkan Bot (Mulai Notifikasi)"}</span>
+                <span>{loading ? "Menghubungkan..." : "Aktifkan NEXA Bot (Mulai Notifikasi)"}</span>
               </button>
             </div>
           )}

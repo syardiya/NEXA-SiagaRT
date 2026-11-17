@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { UserPlus, Shield, HeartHandshake, X, CheckCircle2 } from 'lucide-react';
+import { UserPlus, Shield, HeartHandshake, X, CheckCircle2, ArrowRight } from 'lucide-react';
 
 export default function RegisterModal({ isOpen, onClose, areas = [], onRegistered }) {
-  const [activeTab, setActiveTab] = useState('RT'); // 'RT' | 'VOLUNTEER'
+  const [activeTab, setActiveTab] = useState('VOLUNTEER'); // Default ke Relawan agar warga mudah bergabung
   const [loading, setLoading] = useState(false);
   const [successData, setSuccessData] = useState(null);
 
   // RT Form
   const [rtName, setRtName] = useState('');
   const [rtPhone, setRtPhone] = useState('');
+  const [rtPin, setRtPin] = useState('1234');
   const [kelurahan, setKelurahan] = useState('');
   const [kecamatan, setKecamatan] = useState('');
   const [kota, setKota] = useState('Jakarta Timur');
@@ -18,9 +19,10 @@ export default function RegisterModal({ isOpen, onClose, areas = [], onRegistere
   // Volunteer Form
   const [volName, setVolName] = useState('');
   const [volPhone, setVolPhone] = useState('');
-  const [volRole, setVolRole] = useState('Resident'); // 'Resident' | 'NGO'
+  const [volPin, setVolPin] = useState('1234');
+  const [volRole, setVolRole] = useState('Resident'); // 'Resident' (Relawan Warga) | 'NGO' (Relawan Organisasi)
   const [volOrg, setVolOrg] = useState('');
-  const [selectedAreaId, setSelectedAreaId] = useState(areas[0]?.id || '');
+  const [selectedAreaId, setSelectedAreaId] = useState(areas[0]?.id || 'area-km-04-02');
 
   if (!isOpen) return null;
 
@@ -35,6 +37,7 @@ export default function RegisterModal({ isOpen, onClose, areas = [], onRegistere
         body: JSON.stringify({
           full_name: rtName,
           phone_number: rtPhone,
+          pin: rtPin,
           kelurahan,
           kecamatan,
           kota,
@@ -47,11 +50,12 @@ export default function RegisterModal({ isOpen, onClose, areas = [], onRegistere
       if (data.success) {
         setSuccessData({
           type: 'RT',
+          user: data.user,
+          authToken: data.token,
           title: `Ketua ${data.area.rt_code} ${data.area.rw_code} ${data.area.kelurahan} Berhasil Terdaftar!`,
           token: data.user.telegram_subscribe_token,
-          message: "Wilayah Anda kini aktif di peta NEXA SiagaRT dan siap menerima laporan warga serta membuat tugas gotong royong."
+          message: "Akun dan wilayah RT Anda sudah aktif. Klik tombol di bawah untuk langsung masuk ke Pusat Komando RT/RW."
         });
-        if (onRegistered) onRegistered(data.user);
       } else {
         alert(data.error || "Gagal mendaftarkan RT.");
       }
@@ -73,6 +77,7 @@ export default function RegisterModal({ isOpen, onClose, areas = [], onRegistere
         body: JSON.stringify({
           full_name: volName,
           phone_number: volPhone,
+          pin: volPin,
           role: volRole,
           organization_name: volOrg,
           rt_rw_id: selectedAreaId
@@ -83,13 +88,12 @@ export default function RegisterModal({ isOpen, onClose, areas = [], onRegistere
       if (data.success) {
         setSuccessData({
           type: 'VOLUNTEER',
-          title: `Selamat Bergabung, ${data.user.full_name}!`,
+          user: data.user,
+          authToken: data.token,
+          title: `Selamat Bergabung sebagai Relawan, ${data.user.full_name}!`,
           token: null,
-          message: volRole === 'NGO'
-            ? "Akun NGO / Tim Rescue Anda aktif untuk mengakses dasbor prioritas evakuasi banjir (Phase 2)."
-            : "Anda terdaftar sebagai Relawan Warga Siaga RT untuk gotong royong mitigasi sebelum hujan tiba."
+          message: "Akun Relawan Anda sudah aktif dan tersimpan di database. Klik tombol di bawah untuk langsung membuka Halaman Portal Relawan (melihat tugas RT & menindaklanjuti bantuan banjir)."
         });
-        if (onRegistered) onRegistered(data.user);
       } else {
         alert(data.error || "Gagal mendaftar.");
       }
@@ -100,173 +104,312 @@ export default function RegisterModal({ isOpen, onClose, areas = [], onRegistere
     }
   };
 
+  const handleEnterPortal = () => {
+    if (successData && onRegistered) {
+      onRegistered(successData.user, successData.authToken);
+    }
+    setSuccessData(null);
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-fade-in overflow-y-auto">
-      <div className="relative w-full max-w-lg bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl p-6 text-slate-100 my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in overflow-y-auto">
+      <div className="relative w-full max-w-lg bg-white border border-slate-300 rounded-2xl shadow-2xl p-6 text-slate-900 my-8">
         
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-200">
           <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
+            <div className="p-2.5 rounded-xl bg-emerald-100 text-emerald-700 border border-emerald-200">
               <UserPlus className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">Pendaftaran NEXA SiagaRT</h3>
-              <p className="text-xs text-slate-400">Bergabung dalam jaringan siaga banjir berbasis komunitas</p>
+              <h3 className="text-lg font-extrabold text-slate-900">Pendaftaran Relawan & Pengurus RT</h3>
+              <p className="text-xs text-slate-600">Daftar untuk ikut membantu tindakan lapangan & membuka halaman Relawan</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800">
-            <X className="w-5 h-5" />
+          <button onClick={onClose} className="px-2.5 py-1 text-slate-600 hover:text-red-600 rounded-lg bg-slate-100 border border-slate-300 font-bold text-xs">
+            ✕
           </button>
         </div>
 
         {successData ? (
-          /* Success Screen */
           <div className="py-6 space-y-4 text-center">
-            <div className="w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto">
+            <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300 flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-8 h-8" />
             </div>
-            <h4 className="text-lg font-bold text-white">{successData.title}</h4>
-            <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">{successData.message}</p>
+            <h4 className="text-lg font-extrabold text-slate-900">{successData.title}</h4>
+            <p className="text-xs md:text-sm text-slate-700 max-w-md mx-auto leading-relaxed">{successData.message}</p>
+
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs text-left space-y-1">
+              <span className="text-slate-600 font-bold block">Informasi Login Anda (Untuk Masuk Kembali Nanti):</span>
+              <div>Nomor HP: <strong className="text-slate-900">{successData.user?.phone_number}</strong></div>
+              <div>PIN Akses: <strong className="text-blue-700 font-mono">{volPin || rtPin || '1234'}</strong></div>
+            </div>
 
             {successData.token && (
-              <div className="bg-slate-800/80 p-3.5 rounded-2xl border border-sky-500/30 text-xs text-left space-y-1">
-                <span className="text-slate-400 block text-[11px]">Token Deep-Link Telegram RT Anda:</span>
-                <span className="font-mono font-bold text-sky-300 text-sm block">{successData.token}</span>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Buka tab Ketua RT dan klik <strong>Hubungkan ke Telegram</strong> untuk mengaktifkan notifikasi otomatis ke HP Anda.
-                </p>
+              <div className="bg-blue-50 p-3.5 rounded-xl border border-blue-200 text-xs text-left space-y-1">
+                <span className="text-slate-600 font-bold block">Token NEXA Bot RT Anda:</span>
+                <span className="font-mono font-extrabold text-blue-900 text-sm block">{successData.token}</span>
               </div>
             )}
 
             <button
-              onClick={() => {
-                setSuccessData(null);
-                onClose();
-              }}
-              className="mt-4 px-6 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shadow-lg shadow-sky-500/25 transition-all"
+              onClick={handleEnterPortal}
+              className="mt-4 w-full py-3.5 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
-              Selesai & Mulai Gunakan
+              <span>
+                {successData.type === 'VOLUNTEER'
+                  ? 'Langsung Masuk ke Halaman Portal Relawan'
+                  : 'Langsung Masuk ke Pusat Komando RT/RW'}
+              </span>
+              <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         ) : (
           <div className="py-4 space-y-4">
             {/* Tab Selection */}
-            <div className="grid grid-cols-2 gap-2 bg-slate-800/80 p-1.5 rounded-2xl border border-slate-700">
-              <button
-                type="button"
-                onClick={() => setActiveTab('RT')}
-                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  activeTab === 'RT'
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Shield className="w-3.5 h-3.5" />
-                <span>Daftar Ketua RT Baru</span>
-              </button>
+            <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200">
               <button
                 type="button"
                 onClick={() => setActiveTab('VOLUNTEER')}
-                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                className={`py-2.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                   activeTab === 'VOLUNTEER'
-                    ? 'bg-rose-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : 'text-slate-700 hover:text-slate-900'
                 }`}
               >
-                <HeartHandshake className="w-3.5 h-3.5" />
-                <span>Daftar Relawan / NGO</span>
+                <HeartHandshake className="w-4 h-4" />
+                <span>Daftar Jadi Relawan</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('RT')}
+                className={`py-2.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  activeTab === 'RT'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-700 hover:text-slate-900'
+                }`}
+              >
+                <Shield className="w-4 h-4" />
+                <span>Daftar Ketua RT Baru</span>
               </button>
             </div>
 
-            {/* TAB 1: DAFTAR RT BARU */}
-            {activeTab === 'RT' && (
-              <form onSubmit={handleRegisterRT} className="space-y-3 text-xs">
-                <div className="bg-emerald-950/30 p-2.5 rounded-xl border border-emerald-500/30 text-[11px] text-emerald-300 flex items-start gap-2">
-                  <Shield className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
-                  <span>
-                    Fitur ini untuk <strong>Ketua RT yang wilayahnya belum terdaftar</strong> di peta NEXA SiagaRT. Setelah didaftarkan, sistem otomatis membuat batas wilayah dan token bot Telegram Anda.
-                  </span>
+            {/* TAB 1: DAFTAR RELAWAN / NGO */}
+            {activeTab === 'VOLUNTEER' && (
+              <form onSubmit={handleRegisterVolunteer} className="space-y-3 text-xs md:text-sm">
+                <div className="bg-rose-50 p-3 rounded-xl border border-rose-200 text-xs text-rose-950 font-medium">
+                  Setelah mendaftar, Anda akan <strong>langsung masuk ke Halaman Portal Relawan</strong> untuk melihat tugas pembersihan dari RT/RW (Fase PREVENT) serta membantu warga terdampak banjir (Fase RESPOND).
+                </div>
+
+                <div>
+                  <label className="text-slate-800 font-bold block mb-1">Peran Relawan:</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setVolRole('Resident')}
+                      className={`p-2.5 rounded-xl border-2 text-xs font-bold ${
+                        volRole === 'Resident'
+                          ? 'bg-blue-50 border-blue-600 text-blue-950'
+                          : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Relawan Warga Lingkungan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVolRole('NGO')}
+                      className={`p-2.5 rounded-xl border-2 text-xs font-bold ${
+                        volRole === 'NGO'
+                          ? 'bg-rose-50 border-rose-600 text-rose-950'
+                          : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Relawan Komunitas / NGO
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Nama Lengkap Ketua RT:</label>
+                    <label className="text-slate-800 font-bold block mb-1">Nama Lengkap:</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Contoh: Andi Saputra"
+                      value={volName}
+                      onChange={(e) => setVolName(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:border-rose-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-800 font-bold block mb-1">Nomor WhatsApp / HP (Untuk Login):</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="0857-xxxx-xxxx"
+                      value={volPhone}
+                      onChange={(e) => setVolPhone(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:border-rose-600"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {volRole === 'NGO' ? (
+                    <div>
+                      <label className="text-slate-800 font-bold block mb-1">Nama Komunitas / NGO:</label>
+                      <input
+                        type="text"
+                        placeholder="Contoh: Karang Taruna / Tagana"
+                        value={volOrg}
+                        onChange={(e) => setVolOrg(e.target.value)}
+                        className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:border-rose-600"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="text-slate-800 font-bold block mb-1">Pilih Wilayah RT Terdekat:</label>
+                      <select
+                        value={selectedAreaId}
+                        onChange={(e) => setSelectedAreaId(e.target.value)}
+                        className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:border-rose-600"
+                      >
+                        {areas.map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.kelurahan} ({a.rt_code} {a.rw_code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-slate-800 font-bold block mb-1">Buat PIN Login (4 Digit):</label>
+                    <input
+                      type="text"
+                      required
+                      value={volPin}
+                      onChange={(e) => setVolPin(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 font-mono font-bold focus:outline-none focus:border-rose-600"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2 rounded-xl text-slate-700 bg-slate-100 hover:bg-slate-200 font-bold"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold shadow-sm transition-all cursor-pointer"
+                  >
+                    {loading ? "Menyimpan..." : "Daftar & Buka Halaman Relawan"}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 2: DAFTAR RT BARU */}
+            {activeTab === 'RT' && (
+              <form onSubmit={handleRegisterRT} className="space-y-3 text-xs md:text-sm">
+                <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-xs text-emerald-950 font-medium">
+                  Pendaftaran untuk <strong>Ketua RT yang wilayahnya belum terdaftar</strong>. Sistem otomatis membuat titik wilayah dan token NEXA Bot Anda.
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-slate-800 font-bold block mb-1">Nama Lengkap Ketua RT:</label>
                     <input
                       type="text"
                       required
                       placeholder="Contoh: Pak H. Suryono"
                       value={rtName}
                       onChange={(e) => setRtName(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:border-emerald-600"
                     />
                   </div>
                   <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Nomor WhatsApp / HP:</label>
+                    <label className="text-slate-800 font-bold block mb-1">Nomor WhatsApp / HP:</label>
                     <input
                       type="text"
                       required
                       placeholder="0812-xxxx-xxxx"
                       value={rtPhone}
                       onChange={(e) => setRtPhone(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:border-emerald-600"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Nomor RT:</label>
+                    <label className="text-slate-800 font-bold block mb-1">Nomor RT:</label>
                     <input
                       type="text"
                       required
-                      placeholder="Contoh: RT 06 atau 06"
+                      placeholder="RT 06"
                       value={rtCode}
                       onChange={(e) => setRtCode(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs font-bold text-emerald-300 focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 font-bold focus:outline-none focus:border-emerald-600"
                     />
                   </div>
                   <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Nomor RW:</label>
+                    <label className="text-slate-800 font-bold block mb-1">Nomor RW:</label>
                     <input
                       type="text"
                       required
-                      placeholder="Contoh: RW 04 atau 04"
+                      placeholder="RW 04"
                       value={rwCode}
                       onChange={(e) => setRwCode(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs font-bold text-emerald-300 focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 font-bold focus:outline-none focus:border-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-800 font-bold block mb-1">PIN Login:</label>
+                    <input
+                      type="text"
+                      required
+                      value={rtPin}
+                      onChange={(e) => setRtPin(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 font-mono font-bold focus:outline-none focus:border-emerald-600"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Kelurahan:</label>
+                    <label className="text-slate-800 font-bold block mb-1">Kelurahan:</label>
                     <input
                       type="text"
                       required
                       placeholder="Contoh: Cipinang"
                       value={kelurahan}
                       onChange={(e) => setKelurahan(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:border-emerald-600"
                     />
                   </div>
                   <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Kecamatan:</label>
+                    <label className="text-slate-800 font-bold block mb-1">Kecamatan:</label>
                     <input
                       type="text"
                       placeholder="Contoh: Pulogadung"
                       value={kecamatan}
                       onChange={(e) => setKecamatan(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:border-emerald-600"
                     />
                   </div>
                   <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Kota Administrasi:</label>
+                    <label className="text-slate-800 font-bold block mb-1">Kota:</label>
                     <select
                       value={kota}
                       onChange={(e) => setKota(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-slate-900 focus:outline-none focus:border-emerald-600"
                     >
                       <option value="Jakarta Timur">Jakarta Timur</option>
                       <option value="Jakarta Selatan">Jakarta Selatan</option>
@@ -277,130 +420,20 @@ export default function RegisterModal({ isOpen, onClose, areas = [], onRegistere
                   </div>
                 </div>
 
-                <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
                   <button
                     type="button"
                     onClick={onClose}
-                    className="px-4 py-2 rounded-xl text-slate-400 hover:bg-slate-800"
+                    className="px-4 py-2 rounded-xl text-slate-700 bg-slate-100 hover:bg-slate-200 font-bold"
                   >
                     Batal
                   </button>
                   <button
                     type="submit"
                     disabled={loading}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition-all"
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm transition-all cursor-pointer"
                   >
-                    {loading ? "Mendaftarkan..." : "Daftarkan RT & Buat Token Telegram"}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* TAB 2: DAFTAR WARGA BIASA / NGO */}
-            {activeTab === 'VOLUNTEER' && (
-              <form onSubmit={handleRegisterVolunteer} className="space-y-3 text-xs">
-                <div className="bg-rose-950/30 p-2.5 rounded-xl border border-rose-500/30 text-[11px] text-rose-300 flex items-start gap-2">
-                  <HeartHandshake className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
-                  <span>
-                    Terbuka untuk <strong>Warga Biasa, Mahasiswa, Karang Taruna, dan Organisasi Relawan (PMI, Tagana, SAR)</strong> yang siap membantu saat siaga gotong royong maupun evakuasi banjir.
-                  </span>
-                </div>
-
-                <div>
-                  <label className="text-slate-300 font-semibold block mb-1">Tipe Pendaftar:</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setVolRole('Resident')}
-                      className={`p-2 rounded-xl border text-xs font-semibold ${
-                        volRole === 'Resident'
-                          ? 'bg-sky-500/20 border-sky-500 text-sky-300'
-                          : 'bg-slate-800 border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      Warga Lingkungan (Gotong Royong)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVolRole('NGO')}
-                      className={`p-2 rounded-xl border text-xs font-semibold ${
-                        volRole === 'NGO'
-                          ? 'bg-rose-500/20 border-rose-500 text-rose-300'
-                          : 'bg-slate-800 border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      Organisasi / NGO (Tim Rescue)
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Nama Lengkap:</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Nama Anda atau Koordinator"
-                      value={volName}
-                      onChange={(e) => setVolName(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-rose-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Nomor WhatsApp / HP:</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="0857-xxxx-xxxx"
-                      value={volPhone}
-                      onChange={(e) => setVolPhone(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-rose-500"
-                    />
-                  </div>
-                </div>
-
-                {volRole === 'NGO' ? (
-                  <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Nama Organisasi / Komunitas:</label>
-                    <input
-                      type="text"
-                      placeholder="Contoh: Tagana Rawajati / KSR PMI Unit 04"
-                      value={volOrg}
-                      onChange={(e) => setVolOrg(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-rose-500"
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <label className="text-slate-300 font-semibold block mb-1">Pilih Wilayah RT Domisili:</label>
-                    <select
-                      value={selectedAreaId}
-                      onChange={(e) => setSelectedAreaId(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-rose-500"
-                    >
-                      {areas.map(a => (
-                        <option key={a.id} value={a.id}>
-                          {a.kelurahan} ({a.rt_code} {a.rw_code}) - {a.kecamatan}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="px-4 py-2 rounded-xl text-slate-400 hover:bg-slate-800"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-600/30 transition-all"
-                  >
-                    {loading ? "Menyimpan..." : "Daftar Jadi Relawan"}
+                    {loading ? "Mendaftarkan..." : "Daftarkan RT & Buka Komando"}
                   </button>
                 </div>
               </form>

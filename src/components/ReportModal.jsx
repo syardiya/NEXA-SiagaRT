@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Camera, Sparkles, CheckCircle2, X, UploadCloud, EyeOff, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Camera, Sparkles, CheckCircle2, X, EyeOff, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { compressImage } from '../utils/imageCompressor';
 
 export default function ReportModal({ isOpen, onClose, areas = [], onReportSubmitted }) {
@@ -9,7 +9,8 @@ export default function ReportModal({ isOpen, onClose, areas = [], onReportSubmi
   const [exactAddress, setExactAddress] = useState('');
   const [reporterName, setReporterName] = useState('');
   const [reporterPhone, setReporterPhone] = useState('');
-  const [photoPreview, setPhotoPreview] = useState('https://images.unsplash.com/photo-1618477388954-7852f32655ec?auto=format&fit=crop&w=800&q=80');
+  const [photoPreview, setPhotoPreview] = useState('');
+  const [blurredPhotoPreview, setBlurredPhotoPreview] = useState('');
   const [previewPrivacyBlur, setPreviewPrivacyBlur] = useState(true);
   const [loading, setLoading] = useState(false);
   const [compressing, setCompressing] = useState(false);
@@ -21,34 +22,6 @@ export default function ReportModal({ isOpen, onClose, areas = [], onReportSubmi
 
   if (!isOpen) return null;
 
-  const samplePhotos = [
-    {
-      label: "Saluran Penuh Sedimen Lumpur (Valid)",
-      url: "https://images.unsplash.com/photo-1618477388954-7852f32655ec?auto=format&fit=crop&w=800&q=80",
-      type: "Clogged_Drain",
-      desc: "Saluran gorong-gorong tersumbat lumpur padat dan sampah botol plastik."
-    },
-    {
-      label: "Sampah Menumpuk di Mulut Air (Valid)",
-      url: "https://images.unsplash.com/photo-1530587191325-3db32d826c18?auto=format&fit=crop&w=800&q=80",
-      type: "Trash",
-      desc: "Tumpukan kantong kresek dan ranting menyumbat pintu saringan air."
-    },
-    {
-      label: "Foto Jalanan Kering (Uji AI Mismatch)",
-      url: "https://images.unsplash.com/photo-1519501025264-65ba15a82390?auto=format&fit=crop&w=800&q=80",
-      type: "Flood",
-      desc: "Klaim banjir parah setinggi 1 meter padahal jalanan kering."
-    }
-  ];
-
-  const handleSelectSample = (sample) => {
-    setPhotoPreview(sample.url);
-    setHazardType(sample.type);
-    setDescription(sample.desc);
-    setPhotoStats(null);
-  };
-
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -58,13 +31,13 @@ export default function ReportModal({ isOpen, onClose, areas = [], onReportSubmi
       const result = await compressImage(file);
       if (result.dataUrl) {
         setPhotoPreview(result.dataUrl);
+        setBlurredPhotoPreview(result.blurredDataUrl || result.dataUrl);
         setPhotoStats(result);
       }
     } catch (err) {
       console.warn("Gagal memproses foto:", err);
     } finally {
       setCompressing(false);
-      // Reset input agar bisa pilih/jepret ulang berkas dengan nama yang sama
       e.target.value = '';
     }
   };
@@ -83,10 +56,11 @@ export default function ReportModal({ isOpen, onClose, areas = [], onReportSubmi
         kelurahan: area?.kelurahan,
         rw_code: area?.rw_code,
         rt_code: area?.rt_code,
-        exact_address: exactAddress || `Depan Pos Ronda ${area?.rt_code} ${area?.rw_code}`,
-        reporter_name: reporterName || "Warga Anonim (UU PDP)",
+        exact_address: exactAddress || `Area ${area?.rt_code} ${area?.rw_code}`,
+        reporter_name: reporterName || "Warga (Dilindungi UU PDP)",
         reporter_phone: reporterPhone || "0812-3344-xxxx",
-        photo_url_external: photoPreview
+        photo_url_external: photoPreview,
+        blurred_photo_url: previewPrivacyBlur ? (blurredPhotoPreview || photoPreview) : photoPreview
       };
 
       const res = await fetch('/api/reports', {
@@ -109,160 +83,162 @@ export default function ReportModal({ isOpen, onClose, areas = [], onReportSubmi
     }
   };
 
+  const handleClose = () => {
+    setAiResult(null);
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-fade-in">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-6 text-slate-100 my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs overflow-y-auto animate-fade-in">
+      <div className="relative w-full max-w-2xl bg-white border border-slate-300 rounded-2xl shadow-2xl p-6 text-slate-900 my-8">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
-              <Camera className="w-5 h-5" />
+        <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-blue-100 text-blue-700 border border-blue-200">
+              <Camera className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">Kirim Laporan Bahaya Drainase</h3>
-              <p className="text-xs text-slate-400">Pencegahan dini banjir Jakarta berbasis komunitas (Phase 1)</p>
+              <h3 className="text-lg md:text-xl font-extrabold text-slate-900">Formulir Laporan Warga</h3>
+              <p className="text-xs md:text-sm text-slate-600">
+                Laporan langsung dianalisis AI dan diteruskan ke RT (Pencegahan) serta NGO/Relawan (Penanganan)
+              </p>
             </div>
           </div>
           <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+            onClick={handleClose}
+            className="px-3 py-1.5 text-slate-700 hover:text-red-600 rounded-xl bg-slate-100 hover:bg-red-50 border border-slate-300 font-bold text-xs transition-colors"
           >
-            <X className="w-5 h-5" />
+            ✕ Tutup
           </button>
         </div>
 
         {aiResult ? (
-          /* AI Pipeline Result Showcase */
-          <div className="py-6 space-y-4">
-            <div className={`p-4 rounded-xl border ${
+          /* Hasil Analisis AI Gemini */
+          <div className="py-5 space-y-4">
+            <div className={`p-4 rounded-xl border-2 ${
               aiResult.ai_flag === 'Valid' 
-                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200' 
-                : (aiResult.ai_flag === 'Mismatch' ? 'bg-amber-950/40 border-amber-500/40 text-amber-200' : 'bg-rose-950/40 border-rose-500/40 text-rose-200')
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-950' 
+                : 'bg-amber-50 border-amber-300 text-amber-950'
             }`}>
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles className="w-5 h-5 text-sky-400" />
-                <span className="font-bold text-white text-base">Hasil Analisis Google Gemini AI:</span>
-                <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${
-                  aiResult.ai_flag === 'Valid' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <Sparkles className="w-5 h-5 text-blue-600" />
+                <span className="font-extrabold text-slate-900 text-base">Hasil Analisis AI Google Gemini:</span>
+                <span className={`px-2.5 py-0.5 rounded-md text-xs font-extrabold uppercase border ${
+                  aiResult.ai_flag === 'Valid' ? 'bg-emerald-200 text-emerald-900 border-emerald-400' : 'bg-amber-200 text-amber-900 border-amber-400'
                 }`}>
-                  {aiResult.ai_flag} ({Math.round(aiResult.ai_confidence * 100)}% Confidence)
+                  {aiResult.ai_flag} ({Math.round(aiResult.ai_confidence * 100)}%)
                 </span>
               </div>
-              <p className="text-xs leading-relaxed text-slate-300">{aiResult.ai_reasoning}</p>
+              <p className="text-xs md:text-sm leading-relaxed text-slate-800 font-medium">{aiResult.ai_reasoning}</p>
             </div>
 
-            {/* Task 2: Privacy Masking Preview */}
-            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
-                  <EyeOff className="w-4 h-4 text-sky-400" />
-                  <span>UU PDP Privacy Masking (Sensor Wajah & Pelat Kendaraan)</span>
+            <div className="bg-blue-50 p-4 rounded-xl border border-blue-200 text-xs md:text-sm text-slate-800">
+              <strong className="text-blue-900 block mb-1">Status Diteruskan Otomatis:</strong>
+              {hazardType === 'Flood' ? (
+                <span>
+                  Laporan banjir ini telah <strong>langsung masuk ke Dasbor Relawan & NGO</strong> beserta rekomendasi AI untuk konfirmasi dan evakuasi segera.
+                </span>
+              ) : (
+                <span>
+                  Laporan telah masuk ke <strong>Dasbor Ketua RT</strong> (untuk verifikasi pencegahan sebelum hujan) dan juga tampil di <strong>Dasbor Relawan & NGO</strong>.
+                </span>
+              )}
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs md:text-sm font-bold text-slate-800">
+                <div className="flex items-center gap-2">
+                  <span>Klasifikasi Tingkat Bahaya AI:</span>
+                  <span className="bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-md text-amber-900 uppercase font-extrabold">
+                    {aiResult.ai_suggested_severity}
+                  </span>
                 </div>
-                <span className="text-[10px] bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-600/30">Otomatis Aktif</span>
+                {aiResult.flood_type_label && (
+                  <span className="bg-blue-100 border border-blue-300 px-2.5 py-0.5 rounded-md text-blue-900 text-xs font-extrabold">
+                    Tipe: {aiResult.flood_type_label}
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-slate-400">
-                Sistem mendeteksi elemen privasi pada foto dan otomatis menyamarkan tampilan untuk publik. Foto asli hanya dapat dilihat Ketua RT terverifikasi.
-              </p>
-            </div>
-
-            {/* Task 3: SOP Drafting */}
-            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700">
-              <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 mb-1">
-                <span>Rekomendasi Tingkat Bahaya:</span>
-                <span className="bg-amber-500/20 px-2 py-0.5 rounded text-amber-300 uppercase font-bold">{aiResult.ai_suggested_severity}</span>
-              </div>
-              <h5 className="text-xs font-bold text-white mt-2">Draf Rencana Aksi (SOP Gotong Royong):</h5>
-              <pre className="text-xs text-slate-300 font-sans whitespace-pre-line mt-1 bg-slate-900/80 p-3 rounded-lg border border-slate-800 leading-relaxed">
+              {aiResult.learned_from_samples !== undefined && (
+                <div className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                  ✓ Kalibrasi AI Aktif: Belajar otomatis dari {aiResult.learned_from_samples} riwayat keputusan verifikasi RT & NGO.
+                </div>
+              )}
+              <h5 className="text-xs font-extrabold text-slate-900 mt-2">Rekomendasi Tindakan AI:</h5>
+              <pre className="text-xs text-slate-800 font-sans whitespace-pre-line mt-1 bg-white p-3 rounded-xl border border-slate-200 leading-relaxed">
                 {aiResult.ai_suggested_action}
               </pre>
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
               <button
-                onClick={onClose}
-                className="px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold text-xs shadow-lg shadow-sky-500/30 transition-all"
+                onClick={handleClose}
+                className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-all"
               >
-                Selesai & Lihat di Peta
+                Selesai & Kembali ke Halaman Utama
               </button>
             </div>
           </div>
         ) : (
-          /* Report Submission Form */
+          /* Formulir Laporan Warga */
           <form onSubmit={handleSubmit} className="py-4 space-y-4">
-            {/* Quick Sample Selector */}
-            <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-700/60">
-              <label className="text-xs font-semibold text-slate-300 block mb-1.5 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-sky-400" />
-                Pilih Sampel Uji Cepat (Demo):
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {samplePhotos.map((s, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => handleSelectSample(s)}
-                    className="text-left text-[11px] p-2 rounded-lg bg-slate-900/60 hover:bg-slate-900 border border-slate-700 hover:border-sky-500/50 text-slate-300 transition-all"
-                  >
-                    <span className="font-semibold block text-white truncate">{s.label}</span>
-                    <span className="text-slate-400 text-[10px]">{s.type}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Category */}
+            {/* Langkah 1: Pilih Jenis Masalah */}
             <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1">Kategori Bahaya:</label>
-              <div className="grid grid-cols-3 gap-2">
+              <label className="text-xs md:text-sm font-extrabold text-slate-900 block mb-1.5">
+                1. Pilih Jenis Masalah yang Dilaporkan:
+              </label>
+              <div className="grid grid-cols-3 gap-2.5">
                 <button
                   type="button"
                   onClick={() => setHazardType('Clogged_Drain')}
-                  className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex flex-col items-center gap-1 ${
+                  className={`p-3 rounded-xl border-2 text-xs font-bold transition-all flex flex-col items-center gap-1 ${
                     hazardType === 'Clogged_Drain'
-                      ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-md'
-                      : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      ? 'bg-amber-50 border-amber-500 text-amber-950 shadow-xs'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  <span>🚧 Saluran Tersumbat</span>
-                  <span className="text-[10px] text-slate-400 font-normal">Lumpur / Sedimen</span>
+                  <span className="text-sm">🚧 Saluran Mampet</span>
+                  <span className="text-[11px] text-slate-600 font-medium">Pencegahan RT</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setHazardType('Trash')}
-                  className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex flex-col items-center gap-1 ${
+                  className={`p-3 rounded-xl border-2 text-xs font-bold transition-all flex flex-col items-center gap-1 ${
                     hazardType === 'Trash'
-                      ? 'bg-purple-500/20 border-purple-500 text-purple-300 shadow-md'
-                      : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      ? 'bg-purple-50 border-purple-500 text-purple-950 shadow-xs'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  <span>🗑️ Tumpukan Sampah</span>
-                  <span className="text-[10px] text-slate-400 font-normal">Mulut Saringan Air</span>
+                  <span className="text-sm">🗑️ Tumpukan Sampah</span>
+                  <span className="text-[11px] text-slate-600 font-medium">Pencegahan RT</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setHazardType('Flood')}
-                  className={`p-2.5 rounded-xl border text-xs font-semibold transition-all flex flex-col items-center gap-1 ${
+                  className={`p-3 rounded-xl border-2 text-xs font-bold transition-all flex flex-col items-center gap-1 ${
                     hazardType === 'Flood'
-                      ? 'bg-rose-500/20 border-rose-500 text-rose-300 shadow-md'
-                      : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      ? 'bg-red-50 border-red-500 text-red-950 shadow-xs'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  <span>🌊 Genangan Air</span>
-                  <span className="text-[10px] text-slate-400 font-normal">Rembesan / Luapan</span>
+                  <span className="text-sm">🌊 Banjir / Darurat</span>
+                  <span className="text-[11px] text-red-700 font-bold">Langsung ke NGO</span>
                 </button>
               </div>
             </div>
 
-            {/* Location & RT Selection */}
+            {/* Langkah 2: Pilih Lokasi */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">Pilih Wilayah RT / Kelurahan:</label>
+                <label className="text-xs md:text-sm font-extrabold text-slate-900 block mb-1">
+                  2. Pilih Wilayah RT / Kelurahan:
+                </label>
                 <select
                   value={selectedAreaId}
                   onChange={(e) => setSelectedAreaId(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-xs md:text-sm text-slate-900 font-semibold focus:outline-none focus:border-blue-600"
                 >
                   {areas.map(a => (
                     <option key={a.id} value={a.id}>
@@ -273,49 +249,52 @@ export default function ReportModal({ isOpen, onClose, areas = [], onReportSubmi
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">Detail Alamat / Patokan:</label>
+                <label className="text-xs md:text-sm font-extrabold text-slate-900 block mb-1">
+                  Patokan Lokasi (Jalan / Gang):
+                </label>
                 <input
                   type="text"
-                  placeholder="Contoh: Gang Sawo III depan Musholla"
+                  placeholder="Contoh: Depan Musholla Gang 3"
                   value={exactAddress}
                   onChange={(e) => setExactAddress(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-xs md:text-sm text-slate-900 focus:outline-none focus:border-blue-600"
                 />
               </div>
             </div>
 
-            {/* Description */}
+            {/* Langkah 3: Keterangan */}
             <div>
-              <label className="text-xs font-semibold text-slate-300 block mb-1">Deskripsi Kondisi:</label>
+              <label className="text-xs md:text-sm font-extrabold text-slate-900 block mb-1">
+                3. Ceritakan Kondisi Singkat:
+              </label>
               <textarea
                 rows={2}
                 required
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Ceritakan tingkat keparahan, panjang saluran yang mampet, atau bahaya..."
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                placeholder="Contoh: Got mampet tertutup lumpur hitam, atau air mulai naik setinggi lutut..."
+                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-xs md:text-sm text-slate-900 focus:outline-none focus:border-blue-600"
               />
             </div>
 
-            {/* Photo & Privacy Preview */}
-            <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-700">
+            {/* Langkah 4: Foto */}
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                  <Camera className="w-4 h-4 text-sky-400" />
-                  Foto Bukti Kondisi Lapangan:
+                <label className="text-xs md:text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+                  <Camera className="w-4 h-4 text-blue-600" />
+                  4. Ambil Foto Kondisi:
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer text-[11px] text-slate-400">
+                <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-slate-600">
                   <input
                     type="checkbox"
                     checked={previewPrivacyBlur}
                     onChange={(e) => setPreviewPrivacyBlur(e.target.checked)}
-                    className="rounded text-sky-500 focus:ring-0"
+                    className="rounded text-blue-600"
                   />
-                  <span>Simulasi Sensor UU PDP</span>
+                  <span>Samarkan Wajah/Privasi (UU PDP)</span>
                 </label>
               </div>
 
-              {/* Hidden file inputs for cross-device compatibility */}
               <input
                 ref={cameraInputRef}
                 type="file"
@@ -333,129 +312,111 @@ export default function ReportModal({ isOpen, onClose, areas = [], onReportSubmi
               />
 
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                {/* Photo Preview Thumbnail */}
-                <div className="relative w-32 h-24 rounded-lg overflow-hidden border border-slate-700 bg-slate-900 shrink-0">
-                  <img
-                    src={photoPreview}
-                    alt="Hazard"
-                    className={`w-full h-full object-cover transition-all ${
-                      previewPrivacyBlur ? 'filter blur-[3px]' : ''
-                    }`}
-                  />
-                  {compressing && (
-                    <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center gap-1 text-[10px] text-sky-300">
-                      <Loader2 className="w-5 h-5 animate-spin text-sky-400" />
-                      <span>Mengoptimalkan...</span>
+                <div className="relative w-32 h-24 rounded-xl overflow-hidden border border-slate-300 bg-slate-100 shrink-0 flex items-center justify-center">
+                  {photoPreview ? (
+                    <img
+                      src={previewPrivacyBlur ? (blurredPhotoPreview || photoPreview) : photoPreview}
+                      alt="Foto Laporan"
+                      className="w-full h-full object-cover transition-all"
+                    />
+                  ) : (
+                    <div className="text-center p-2 text-[11px] font-semibold text-slate-500">
+                      Belum ada foto dipilih
                     </div>
                   )}
-                  {previewPrivacyBlur && !compressing && (
-                    <div className="absolute inset-0 bg-slate-950/30 flex items-center justify-center">
-                      <span className="text-[9px] bg-slate-900/80 text-sky-300 px-1.5 py-0.5 rounded border border-sky-500/30 font-bold">
-                        PDP MASKED
-                      </span>
+                  {compressing && (
+                    <div className="absolute inset-0 bg-white/90 flex flex-col items-center justify-center gap-1 text-[11px] font-bold text-blue-800">
+                      <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                      <span>Memproses...</span>
                     </div>
                   )}
                 </div>
 
-                {/* Upload Action Buttons */}
                 <div className="flex-1 w-full space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => cameraInputRef.current?.click()}
                       disabled={compressing}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-md shadow-sky-600/20 transition-all cursor-pointer"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
                     >
                       <Camera className="w-4 h-4" />
-                      <span>Foto Langsung (Kamera HP)</span>
+                      <span>Buka Kamera HP</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => galleryInputRef.current?.click()}
                       disabled={compressing}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs font-medium transition-all cursor-pointer"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold transition-all cursor-pointer"
                     >
-                      <ImageIcon className="w-4 h-4 text-slate-300" />
+                      <ImageIcon className="w-4 h-4 text-slate-700" />
                       <span>Pilih dari Galeri</span>
                     </button>
                   </div>
 
-                  {/* Photo Optimization Status */}
                   {photoStats && (
-                    <div className="text-[11px] px-2.5 py-1 rounded bg-slate-800/80 border border-slate-700/80 text-slate-300 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      {photoStats.isCompressed ? (
-                        <span>
-                          Foto dioptimalkan otomatis: <strong className="text-emerald-300">{photoStats.compressedSizeKb} KB</strong> (dari {photoStats.originalSizeKb} KB, kualitas tajam).
-                        </span>
-                      ) : (
-                        <span>
-                          Ukuran foto aman: <strong className="text-sky-300">{photoStats.originalSizeKb} KB</strong> (resolusi asli dipertahankan).
-                        </span>
-                      )}
+                    <div className="text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center gap-1.5 font-medium">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Foto siap dikirim ({photoStats.compressedSizeKb || photoStats.originalSizeKb} KB).</span>
                     </div>
                   )}
-
-                  <p className="text-[11px] text-slate-400">
-                    Kamera HP jadul otomatis dipertahankan kejernihannya. Kamera resolusi tinggi otomatis dikompres agar hemat kuota dan cepat terkirim.
-                  </p>
                 </div>
               </div>
             </div>
 
-            {/* Reporter details (Protected by UU PDP) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            {/* Identitas Opsional */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs md:text-sm">
               <div>
-                <label className="text-slate-400 block mb-1">Nama Pelapor (Opsional):</label>
+                <label className="text-slate-700 font-bold block mb-1">Nama Anda (Boleh Dikosongkan):</label>
                 <input
                   type="text"
-                  placeholder="Budi Santoso"
+                  placeholder="Contoh: Pak Budi"
                   value={reporterName}
                   onChange={(e) => setReporterName(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500"
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-blue-600"
                 />
               </div>
               <div>
-                <label className="text-slate-400 block mb-1">No. WhatsApp / HP:</label>
+                <label className="text-slate-700 font-bold block mb-1">Nomor HP / WhatsApp (Opsional):</label>
                 <input
                   type="text"
                   placeholder="0812-xxxx-xxxx"
                   value={reporterPhone}
                   onChange={(e) => setReporterPhone(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-white text-xs focus:outline-none focus:border-sky-500"
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-blue-600"
                 />
               </div>
             </div>
 
-            {/* Footer Buttons */}
-            <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-              <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                Data dienkripsi & sesuai UU PDP
+            {/* Footer Submit */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+              <span className="text-xs text-slate-600 font-medium flex items-center gap-1">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                Identitas aman dilindungi UU PDP
               </span>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="px-4 py-2 rounded-xl text-xs text-slate-300 hover:bg-slate-800"
+                  onClick={handleClose}
+                  className="px-4 py-2.5 rounded-xl text-xs md:text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-white shadow-lg shadow-sky-500/25 disabled:opacity-50 transition-all"
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs md:text-sm font-extrabold bg-red-600 hover:bg-red-700 text-white shadow-md disabled:opacity-50 transition-all"
                 >
                   {loading ? (
                     <>
                       <Sparkles className="w-4 h-4 animate-spin text-white" />
-                      <span>Gemini AI Menganalisis...</span>
+                      <span>Memproses dengan AI...</span>
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4" />
-                      <span>Kirim & Analisis AI</span>
+                      <span>Kirim Laporan Sekarang</span>
                     </>
                   )}
                 </button>

@@ -49,9 +49,10 @@ export default function PublicMap({ areas = [], reports = [], currentRole = 'PUB
 
     const isPublic = currentRole === 'PUBLIC' || currentRole === 'NGO';
 
-    // 1. Render RT/RW Areas Boundaries
+    // 1. Render RT/RW Areas Boundaries (Hanya tampilkan poligon wilayah jika ada laporan aktif di wilayah tersebut)
     areas.forEach(area => {
-      if (area.geom_polygon && area.geom_polygon.length > 0) {
+      const areaHasReports = reports.some(r => r.rt_rw_id === area.id);
+      if (areaHasReports && area.geom_polygon && area.geom_polygon.length > 0) {
         const polygon = L.polygon(area.geom_polygon, {
           color: '#0284c7',
           weight: 2,
@@ -77,7 +78,8 @@ export default function PublicMap({ areas = [], reports = [], currentRole = 'PUB
           ? areaReports 
           : areaReports.filter(r => r.hazard_type === filterType);
 
-        if (filtered.length === 0 && filterType !== 'ALL') return;
+        // Hanya tampilkan titik marker di peta jika benar-benar ada laporan di wilayah RT tersebut
+        if (filtered.length === 0) return;
 
         const count = filtered.length;
         const hasFlood = filtered.some(r => r.hazard_type === 'Flood');
@@ -185,85 +187,98 @@ export default function PublicMap({ areas = [], reports = [], currentRole = 'PUB
   }, [areas, reports, currentRole, filterType]);
 
   return (
-    <div className="relative w-full h-[520px] rounded-2xl overflow-hidden border border-slate-700/80 shadow-2xl bg-slate-900">
+    <div className="relative w-full h-[500px] rounded-2xl overflow-hidden border border-slate-300 shadow-md bg-white">
       {/* Map container */}
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-      {/* Top Overlay: PDP Privacy Badge & Filters */}
-      <div className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-2">
+      {/* Top Overlay: PDP Privacy Badge */}
+      <div className="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2 max-w-md">
         {currentRole === 'PUBLIC' || currentRole === 'NGO' ? (
-          <div className="bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-sky-500/30 text-xs shadow-lg flex items-center gap-2 text-sky-200">
-            <ShieldCheck className="w-4 h-4 text-sky-400 shrink-0" />
+          <div className="bg-white/95 backdrop-blur-xs px-3 py-2 rounded-xl border border-slate-300 text-xs shadow-md flex items-center gap-2 text-slate-800">
+            <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
             <div>
-              <span className="font-bold text-white">Peta Agregat Publik (UU PDP Aktif):</span>{' '}
-              <span className="text-slate-300">Hanya menampilkan pusat agregat RT. Titik koordinat rumah disamarkan.</span>
+              <span className="font-bold text-slate-900">Peta Wilayah RT (Aman UU PDP):</span>{' '}
+              <span className="text-slate-600">Titik rumah warga disamarkan demi privasi.</span>
             </div>
           </div>
         ) : (
-          <div className="bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-emerald-500/40 text-xs shadow-lg flex items-center gap-2 text-emerald-200">
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+          <div className="bg-white/95 backdrop-blur-xs px-3 py-2 rounded-xl border border-emerald-400 text-xs shadow-md flex items-center gap-2 text-slate-800">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
             <div>
-              <span className="font-bold text-white">Mode Terverifikasi (Ketua RT):</span>{' '}
-              <span className="text-emerald-300">Menampilkan titik lokasi presisi & alamat pelapor untuk aksi gotong royong.</span>
+              <span className="font-bold text-emerald-900">Mode Pengurus RT:</span>{' '}
+              <span className="text-slate-700">Menampilkan titik lokasi presisi untuk gotong royong.</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Filter Chips Overlay */}
-      <div className="absolute top-4 right-4 z-10 bg-slate-900/90 backdrop-blur-md p-1 rounded-xl border border-slate-700/80 shadow-lg flex items-center gap-1 text-xs">
+      {/* Filter Chips Overlay - Clean White High Contrast */}
+      <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs p-1.5 rounded-xl border border-slate-300 shadow-md flex items-center gap-1 text-xs">
         <button
           onClick={() => setFilterType('ALL')}
-          className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
-            filterType === 'ALL' ? 'bg-sky-500 text-white shadow' : 'text-slate-300 hover:text-white'
+          className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+            filterType === 'ALL' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 hover:bg-slate-100'
           }`}
         >
           Semua
         </button>
         <button
           onClick={() => setFilterType('Clogged_Drain')}
-          className={`px-2.5 py-1 rounded-lg font-medium flex items-center gap-1 transition-all ${
-            filterType === 'Clogged_Drain' ? 'bg-amber-500 text-slate-950 font-bold shadow' : 'text-slate-300 hover:text-white'
+          className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all ${
+            filterType === 'Clogged_Drain' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-700 hover:bg-slate-100'
           }`}
         >
-          <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 border border-white"></span>
           Saluran
         </button>
         <button
           onClick={() => setFilterType('Trash')}
-          className={`px-2.5 py-1 rounded-lg font-medium flex items-center gap-1 transition-all ${
-            filterType === 'Trash' ? 'bg-purple-600 text-white shadow' : 'text-slate-300 hover:text-white'
+          className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all ${
+            filterType === 'Trash' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-700 hover:bg-slate-100'
           }`}
         >
-          <span className="w-2 h-2 rounded-full bg-purple-300"></span>
+          <span className="w-2.5 h-2.5 rounded-full bg-purple-600 border border-white"></span>
           Sampah
         </button>
         <button
           onClick={() => setFilterType('Flood')}
-          className={`px-2.5 py-1 rounded-lg font-medium flex items-center gap-1 transition-all ${
-            filterType === 'Flood' ? 'bg-rose-600 text-white shadow' : 'text-slate-300 hover:text-white'
+          className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all ${
+            filterType === 'Flood' ? 'bg-red-600 text-white shadow-xs' : 'text-slate-700 hover:bg-slate-100'
           }`}
         >
-          <span className="w-2 h-2 rounded-full bg-rose-300"></span>
-          Genangan
+          <span className="w-2.5 h-2.5 rounded-full bg-red-600 border border-white"></span>
+          Banjir
         </button>
       </div>
 
+      {/* Info jika belum ada laporan sama sekali */}
+      {reports.length === 0 && !selectedItem && (
+        <div className="absolute bottom-4 left-4 right-4 z-10 bg-white/95 backdrop-blur-xs px-4 py-3 rounded-xl border border-slate-300 shadow-md max-w-lg text-xs text-slate-700 flex items-center justify-between gap-3">
+          <div>
+            <strong className="text-slate-900 block">Peta Bersih (0 Laporan Aktif)</strong>
+            <span>Titik lokasi akan otomatis muncul di peta begitu ada warga yang mengirim laporan bahaya/banjir.</span>
+          </div>
+          <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold shrink-0">
+            Siaga Real-Time
+          </span>
+        </div>
+      )}
+
       {/* Bottom Floating Legend / Selected Item Card */}
       {selectedItem && (
-        <div className="absolute bottom-4 left-4 right-4 z-10 bg-slate-900/95 backdrop-blur-md p-4 rounded-xl border border-sky-500/40 shadow-2xl animate-fade-in max-w-lg">
+        <div className="absolute bottom-4 left-4 right-4 z-10 bg-white p-4 rounded-xl border-2 border-blue-500 shadow-2xl animate-fade-in max-w-lg text-slate-900">
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                  {selectedItem.type === 'AREA_AGGREGATE' ? 'Data Agregat Wilayah' : 'Detail Laporan Presisi'}
+                <span className="px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                  {selectedItem.type === 'AREA_AGGREGATE' ? 'Data Wilayah RT' : 'Detail Laporan Warga'}
                 </span>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs font-semibold text-slate-600">
                   {selectedItem.type === 'AREA_AGGREGATE' ? selectedItem.area.kota : selectedItem.report.kelurahan}
                 </span>
               </div>
 
-              <h4 className="text-base font-bold text-white mt-1">
+              <h4 className="text-base font-extrabold text-slate-900 mt-1">
                 {selectedItem.type === 'AREA_AGGREGATE'
                   ? `${selectedItem.area.kelurahan} (${selectedItem.area.rt_code} ${selectedItem.area.rw_code})`
                   : selectedItem.report.hazard_type_label}
@@ -272,44 +287,41 @@ export default function PublicMap({ areas = [], reports = [], currentRole = 'PUB
 
             <button
               onClick={() => setSelectedItem(null)}
-              className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded bg-slate-800"
+              className="text-slate-700 hover:text-red-600 font-bold text-xs px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-300"
             >
               ✕ Tutup
             </button>
           </div>
 
           {selectedItem.type === 'AREA_AGGREGATE' ? (
-            <div className="mt-3 text-xs text-slate-300 space-y-1.5">
-              <div className="flex items-center justify-between bg-slate-800/60 p-2 rounded-lg">
-                <span>Total Laporan di RT Ini:</span>
-                <strong className="text-sky-300 text-sm">{selectedItem.reports.length} laporan</strong>
+            <div className="mt-3 text-xs text-slate-700 space-y-1.5">
+              <div className="flex items-center justify-between bg-slate-100 p-2.5 rounded-lg border border-slate-200">
+                <span className="font-semibold">Total Laporan di Wilayah Ini:</span>
+                <strong className="text-blue-700 text-sm">{selectedItem.reports.length} laporan</strong>
               </div>
-              <div className="flex items-center justify-between text-slate-400">
-                <span>Pos Pantau Terkait:</span>
-                <span className="text-slate-200">{selectedItem.area.monitoring_post}</span>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Pos Pantau Terkait:</span>
+                <span className="font-bold text-slate-900">{selectedItem.area.monitoring_post}</span>
               </div>
-              <div className="flex items-center justify-between text-slate-400">
-                <span>Karakteristik Resapan:</span>
-                <span className="text-amber-300">{selectedItem.area.water_retention_capacity}</span>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Daya Resapan Air:</span>
+                <span className="font-bold text-amber-800">{selectedItem.area.water_retention_capacity}</span>
               </div>
-              <p className="text-[11px] text-slate-400 italic mt-2 border-t border-slate-800 pt-2">
-                🔒 Sesuai UU PDP: Warga hanya dapat melihat statistik lingkungan dan berpartisipasi gotong royong.
-              </p>
             </div>
           ) : (
-            <div className="mt-3 text-xs text-slate-300 space-y-1.5">
-              <p className="text-slate-200">{selectedItem.report.description}</p>
-              <div className="flex items-center justify-between bg-slate-800/80 p-2 rounded-lg">
-                <span className="text-slate-400">Alamat Presisi:</span>
-                <span className="font-semibold text-emerald-400">{selectedItem.report.exact_location?.address}</span>
+            <div className="mt-3 text-xs text-slate-700 space-y-1.5">
+              <p className="text-slate-900 font-medium">{selectedItem.report.description}</p>
+              <div className="flex items-center justify-between bg-emerald-50 p-2.5 rounded-lg border border-emerald-200">
+                <span className="text-slate-700 font-semibold">Alamat Presisi:</span>
+                <span className="font-bold text-emerald-900">{selectedItem.report.exact_location?.address}</span>
               </div>
-              <div className="flex items-center justify-between text-slate-400">
-                <span>Pelapor:</span>
-                <span className="text-slate-200">{selectedItem.report.reporter_name} ({selectedItem.report.reporter_phone})</span>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Pelapor:</span>
+                <span className="font-bold text-slate-900">{selectedItem.report.reporter_name} ({selectedItem.report.reporter_phone})</span>
               </div>
-              <div className="flex items-center justify-between text-slate-400">
-                <span>AI Rekomendasi:</span>
-                <span className="text-amber-300 font-medium">{selectedItem.report.ai_suggested_severity}</span>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Tingkat Keparahan AI:</span>
+                <span className="text-amber-800 font-bold">{selectedItem.report.ai_suggested_severity}</span>
               </div>
             </div>
           )}

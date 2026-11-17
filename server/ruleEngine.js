@@ -1,13 +1,85 @@
 import { db } from './db.js';
 
 /**
- * Hard-coded Rule Engine for Jakarta Flood Early Warning.
+ * Hard-coded Rule Engine for Jakarta Flood Early Warning & 3-Flood-Type Hydrological Classifier.
  * As per PRD Section 6 (Responsible AI):
- * Triggers "Possible flood, needs verification" IF at least 2 of 3 conditions are TRUE:
- * Condition 1: BPBD Pos Pantau terdekat berstatus Siaga 3, 2, atau 1.
- * Condition 2: Data BMKG (CAP API) Terdapat heavy-rain warning di kecamatan tersebut.
- * Condition 3: Internal Data Terkumpul >= 3 Laporan Banjir 'Verified' dalam 2 jam terakhir di kelurahan yang sama.
+ * 1. Triggers "Possible flood, needs verification" IF at least 2 of 3 conditions are TRUE:
+ *    - Condition 1: BPBD Pos Pantau terdekat berstatus Siaga 3, 2, atau 1.
+ *    - Condition 2: Data Cuaca / BMKG Terdapat heavy-rain warning aktif di kecamatan tersebut.
+ *    - Condition 3: Internal Data Terkumpul >= 3 Laporan Banjir 'Verified' dalam 2 jam terakhir di kelurahan yang sama.
+ * 2. Classifies Jakarta's 3 Distinct Flood Mechanisms:
+ *    - HUJAN_LOKAL_DRAINASE (Local Rainfall + Clogged Micro-Drainage) -> Safe for Pre-Rain RT Gotong Royong
+ *    - KIRIMAN_HULU (Upstream Ciliwung/Katulampa/Manggarai Overflow) -> Cancel Gotong Royong if Siaga 1-2, Trigger NGO Evacuation
+ *    - ROB_PESISIR (Coastal Tidal Flood / Pasar Ikan) -> Polder Pump & Coastal NGO Evacuation Protocol
  */
+
+export function classifyJakartaFloodMechanism({ kelurahan = '', kecamatan = '', nearestPost = null, isHeavyRainActive = false }) {
+  const kelLower = kelurahan.toLowerCase();
+  const kecLower = kecamatan.toLowerCase();
+  const postNameLower = (nearestPost?.name || '').toLowerCase();
+
+  const isCoastal =
+    kelLower.includes('penjaringan') ||
+    kelLower.includes('pluit') ||
+    kelLower.includes('muara') ||
+    kelLower.includes('ancol') ||
+    kecLower.includes('penjaringan') ||
+    postNameLower.includes('pasar ikan');
+
+  const isRiverBasin =
+    kelLower.includes('kampung melayu') ||
+    kelLower.includes('bidara cina') ||
+    kelLower.includes('rawajati') ||
+    kelLower.includes('bukit duri') ||
+    kelLower.includes('cawang') ||
+    kelLower.includes('pejaten') ||
+    postNameLower.includes('katulampa') ||
+    postNameLower.includes('manggarai') ||
+    postNameLower.includes('depok');
+
+  if (isCoastal) {
+    const isTideHigh = nearestPost && nearestPost.siaga_level <= 3;
+    return {
+      code: 'ROB_PESISIR',
+      label: 'Banjir Rob Pesisir (Pasang Laut)',
+      gotong_royong_safe: !isTideHigh,
+      primary_actor: 'Dinas SDA (Pompa Polder) & Tim Evakuasi NGO',
+      protocol_summary: isTideHigh
+        ? 'PERINGATAN ROB: Ketinggian air laut di Pos Pasar Ikan meningkat. Kerja bakti keruk got biasa TIDAK efektif menahan air pasang laut. Pastikan pompa polder aktif dan evakuasi lansia/balita bersama NGO.'
+        : 'Pantau jadwal pasang maksimum laut dan pastikan pintu klep saluran pesisir tidak terganjal sampah.'
+    };
+  }
+
+  if (isRiverBasin && nearestPost && nearestPost.siaga_level <= 2) {
+    return {
+      code: 'KIRIMAN_HULU',
+      label: 'Banjir Kiriman Hulu (Luapan Sungai Ciliwung)',
+      gotong_royong_safe: false,
+      primary_actor: 'BPBD & Tim SAR / NGO (Evakuasi Darurat)',
+      protocol_summary: `BAHAYA LUAPAN SUNGAI (${nearestPost.status}): Debit kiriman dari hulu sangat tinggi (${nearestPost.water_level_cm} cm). DILARANG melakukan kerja bakti di pinggir kali/saluran induk! Langsung jalankan evakuasi warga rentan bersama NGO.`
+    };
+  }
+
+  if (isRiverBasin && nearestPost && nearestPost.siaga_level === 3) {
+    return {
+      code: 'KIRIMAN_DAN_LOKAL',
+      label: 'Kombinasi Kiriman Hulu (Waspada) & Drainase Lokal',
+      gotong_royong_safe: true,
+      primary_actor: 'Ketua RT (Bersihkan Saluran Dalam) & Siaga NGO',
+      protocol_summary: `Pos ${nearestPost.name} berstatus Waspada (${nearestPost.water_level_cm} cm). Bersihkan hanya saluran mikro di permukiman warga dan siapkan posko evakuasi bersama NGO jika air sungai terus naik.`
+    };
+  }
+
+  return {
+    code: 'HUJAN_LOKAL_DRAINASE',
+    label: 'Genangan Hujan Lokal & Sumbatan Drainase Mikro',
+    gotong_royong_safe: true,
+    primary_actor: 'Ketua RT & Warga (Pencegahan Pra-Hujan)',
+    protocol_summary: isHeavyRainActive
+      ? 'Pencegahan Pra-Hujan Aktif: Segera keruk sumbatan lumpur dan sampah di mulut gorong-gorong RT sebelum hujan lebat turun.'
+      : 'Kondisi pintu air sungai aman. Fokus pada pemeliharaan kebersihan gorong-gorong lingkungan RT.'
+  };
+}
 
 export function evaluateAreaFloodRule(areaId) {
   const areas = db.get('areas');
@@ -19,10 +91,17 @@ export function evaluateAreaFloodRule(areaId) {
   const reports = db.get('reports');
 
   // Condition 1: BPBD Pos Pantau Status
-  const nearestPost = bpbdPosts.find(p => p.name.toLowerCase().includes(area.kelurahan.toLowerCase()) || 
-                                          p.flow_destination.toLowerCase().includes(area.kelurahan.toLowerCase()) ||
-                                          (area.monitoring_post && p.name.includes(area.monitoring_post.replace('Pos Pantau ', ''))))
-                      || bpbdPosts.find(p => p.id === 'pos-manggarai'); // Default Ciliwung basin
+  const kelLower = (area.kelurahan || '').toLowerCase();
+  const monitorBase = (area.monitoring_post || '').replace(/pos\s*pantau\s*/i, '').trim().toLowerCase();
+  const nearestPost = bpbdPosts.find(p => {
+    const pName = (p.name || '').toLowerCase();
+    const pFlow = (p.flow_destination || '').toLowerCase();
+    return (
+      (kelLower && pName.includes(kelLower)) ||
+      (kelLower && pFlow.includes(kelLower)) ||
+      (monitorBase && pName.includes(monitorBase))
+    );
+  }) || bpbdPosts.find(p => p.id === 'pos-manggarai') || bpbdPosts[0] || null;
 
   const isCondition1 = nearestPost ? (nearestPost.siaga_level <= 3) : false;
   const condition1Details = nearestPost ? {
@@ -36,11 +115,14 @@ export function evaluateAreaFloodRule(areaId) {
       : `Pos Pantau ${nearestPost.name} saat ini ${nearestPost.water_level_cm} cm (Normal / Siaga 4).`
   } : { satisfied: false, explanation: "Data pos pantau tidak tersedia." };
 
-  // Condition 2: BMKG CAP API Heavy-Rain Warning for this kecamatan
+  // Condition 2: BMKG / Real-Time Heavy-Rain Warning for this kecamatan
   const warning = bmkgForecast.active_warning || {};
   const affected = warning.affected_kecamatan || [];
   const isCondition2 = Boolean(warning.is_active && (
-    affected.some(kec => kec.toLowerCase() === area.kecamatan.toLowerCase()) ||
+    affected.some(kec => {
+      const k = (kec || '').toLowerCase();
+      return k === (area.kecamatan || '').toLowerCase() || k.includes('jakarta');
+    }) ||
     affected.length === 0
   ));
   const condition2Details = {
@@ -50,8 +132,8 @@ export function evaluateAreaFloodRule(areaId) {
     satisfied: isCondition2,
     expected_heavy_rain: warning.expected_heavy_rain,
     explanation: isCondition2
-      ? `BMKG CAP Warning AKTIF untuk Kecamatan ${area.kecamatan}: "${warning.headline}". Estimasi hujan lebat: ${new Date(warning.expected_heavy_rain).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB.`
-      : `Tidak ada peringatan hujan ekstrem BMKG untuk Kecamatan ${area.kecamatan}.`
+      ? `Peringatan Hujan Lebat AKTIF untuk Kecamatan ${area.kecamatan}: "${warning.headline}".`
+      : `Cuaca di Kecamatan ${area.kecamatan} saat ini kondusif (di bawah ambang batas hujan ekstrem).`
   };
 
   // Condition 3: Internal Data >= 3 Verified Flood Reports in last 2 hours
@@ -76,7 +158,7 @@ export function evaluateAreaFloodRule(areaId) {
     recent_reports: recentVerifiedReports.map(r => ({ id: r.id, desc: r.description, time: r.created_at })),
     explanation: isCondition3
       ? `Terkumpul ${verifiedCount} laporan banjir berstatus Terverifikasi dalam 2 jam terakhir di ${area.kelurahan} (Ambang batas >= 3 terpenuhi).`
-      : `Hanya ada ${verifiedCount} dari minimal 3 laporan banjir terverifikasi dalam 2 jam terakhir di ${area.kelurahan}.`
+      : `Tercatat ${verifiedCount} dari minimal 3 laporan banjir terverifikasi dalam 2 jam terakhir di ${area.kelurahan}.`
   };
 
   // Rule 2 of 3 calculation
@@ -87,6 +169,14 @@ export function evaluateAreaFloodRule(areaId) {
   if (trueConditionsCount === 1) alertLevel = "MONITOR";
   if (trueConditionsCount === 2) alertLevel = "WARNING";
   if (trueConditionsCount === 3) alertLevel = "CRITICAL";
+
+  // Classify flood mechanism (Local vs Upstream Kiriman vs Coastal Rob)
+  const floodMechanism = classifyJakartaFloodMechanism({
+    kelurahan: area.kelurahan,
+    kecamatan: area.kecamatan,
+    nearestPost,
+    isHeavyRainActive: isCondition2
+  });
 
   return {
     area_id: area.id,
@@ -100,9 +190,10 @@ export function evaluateAreaFloodRule(areaId) {
     true_conditions_count: trueConditionsCount,
     required_count: 2,
     alert_level: alertLevel,
+    flood_mechanism: floodMechanism,
     notification_message: isTriggered 
-      ? `⚠️ SIAGA: Possible flood in ${area.kelurahan} (${area.rt_code} ${area.rw_code}), needs verification! (${trueConditionsCount}/3 kondisi terpenuhi)`
-      : `Status Terkendali (${trueConditionsCount}/3 kondisi terpenuhi)`,
+      ? `⚠️ SIAGA [${floodMechanism.label}]: Potensi banjir di ${area.kelurahan} (${area.rt_code} ${area.rw_code})! (${trueConditionsCount}/3 kondisi terpenuhi). ${floodMechanism.protocol_summary}`
+      : `Status Terkendali (${trueConditionsCount}/3 kondisi terpenuhi) — Karakteristik Wilayah: ${floodMechanism.label}.`,
     conditions: {
       condition_1_bpbd: condition1Details,
       condition_2_bmkg: condition2Details,

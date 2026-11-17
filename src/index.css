@@ -4,40 +4,42 @@
 
 :root {
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  color: #0f172a;
+  background-color: #f8fafc;
 }
 
-/* Custom scrollbars */
+/* Custom scrollbars - Clean Light Mode */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: #f1f5f9;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(56, 189, 248, 0.3);
+  background: #94a3b8;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(56, 189, 248, 0.6);
+  background: #64748b;
 }
 
-/* Leaflet map styling overrides */
+/* Leaflet map styling overrides - Clean White Theme */
 .leaflet-container {
   width: 100%;
   height: 100%;
   border-radius: 0.75rem;
-  background-color: #0f172a;
+  background-color: #f1f5f9;
 }
 .leaflet-popup-content-wrapper {
-  background: #1e293b;
-  color: #f1f5f9;
+  background: #ffffff;
+  color: #0f172a;
   border-radius: 0.75rem;
-  border: 1px solid rgba(56, 189, 248, 0.2);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15);
 }
 .leaflet-popup-tip {
-  background: #1e293b;
+  background: #ffffff;
 }
 
 /* Pulsing radar effect for high priority flood areas */

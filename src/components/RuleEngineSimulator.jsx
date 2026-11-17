@@ -13,7 +13,6 @@ export default function RuleEngineSimulator({
   const [selectedAreaId, setSelectedAreaId] = useState('area-km-04-02');
   const [isSimulating, setIsSimulating] = useState(false);
 
-  // Find evaluated result for selected area
   const areaEvaluation = ruleStatus?.areas?.find(a => a.area_id === selectedAreaId) || ruleStatus?.areas?.[0];
 
   const handleToggleBpbd = async (val) => {
@@ -41,33 +40,35 @@ export default function RuleEngineSimulator({
   const isTriggered = areaEvaluation?.is_triggered ?? false;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-slate-900">
       {/* Top Banner */}
-      <div className="bg-gradient-to-r from-purple-950/80 via-slate-900 to-indigo-950/80 border border-purple-500/30 rounded-2xl p-5 shadow-xl">
+      <div className="bg-white border-2 border-purple-400/40 rounded-2xl p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 rounded-xl bg-purple-100 text-purple-800 border border-purple-300">
               <Cpu className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-white">Rule-Engine: "Possible Flood" Trigger (Section 6)</h2>
-                <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-semibold border border-purple-500/30">
-                  Responsible AI (Hard-Coded)
+                <h2 className="text-lg md:text-xl font-extrabold text-slate-900">
+                  Sistem Peringatan Banjir 2-dari-3 (Rule Engine)
+                </h2>
+                <span className="text-xs bg-purple-100 text-purple-900 px-2.5 py-0.5 rounded-md font-bold border border-purple-300">
+                  Responsible AI
                 </span>
               </div>
-              <p className="text-xs text-slate-300 mt-0.5">
-                Keputusan bahaya banjir <strong>TIDAK</strong> diserahkan ke AI black-box, melainkan dieksekusi oleh Rule-Engine jika minimal <strong>2 dari 3 kondisi</strong> terpenuhi.
+              <p className="text-xs md:text-sm text-slate-600 mt-1">
+                Keputusan bahaya banjir ditetapkan secara terukur apabila minimal <strong>2 dari 3 indikator</strong> (BPBD, BMKG, Laporan Warga) terpenuhi.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-400">Pilih Wilayah Uji:</label>
+            <label className="text-xs font-bold text-slate-700">Wilayah Pantauan:</label>
             <select
               value={selectedAreaId}
               onChange={(e) => setSelectedAreaId(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white"
+              className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900"
             >
               {ruleStatus?.areas?.map(a => (
                 <option key={a.area_id} value={a.area_id}>
@@ -80,37 +81,35 @@ export default function RuleEngineSimulator({
       </div>
 
       {/* 2-of-3 Condition Visualizer Card */}
-      <div className={`p-6 rounded-2xl border transition-all ${
-        isTriggered 
-          ? 'bg-rose-950/30 border-rose-500/60 shadow-2xl shadow-rose-950/30' 
-          : 'bg-slate-900 border-slate-700 shadow-xl'
+      <div className={`p-6 rounded-2xl border-2 transition-all bg-white shadow-sm ${
+        isTriggered ? 'border-red-500' : 'border-slate-200'
       }`}>
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wider font-bold text-slate-400">Status Trigger Wilayah:</span>
-              <strong className="text-white text-base">{areaEvaluation?.kelurahan} ({areaEvaluation?.rt_code} {areaEvaluation?.rw_code})</strong>
+              <span className="text-xs uppercase tracking-wider font-extrabold text-slate-600">Status Wilayah:</span>
+              <strong className="text-slate-900 text-base">{areaEvaluation?.kelurahan} ({areaEvaluation?.rt_code} {areaEvaluation?.rw_code})</strong>
             </div>
-            <p className="text-xs text-slate-300 mt-1">{areaEvaluation?.notification_message}</p>
+            <p className="text-xs md:text-sm text-slate-700 mt-1 font-medium">{areaEvaluation?.notification_message}</p>
           </div>
 
           <div className="flex items-center gap-3">
             <div className="text-right">
-              <span className="text-xs text-slate-400 block">Kondisi Terpenuhi:</span>
+              <span className="text-xs font-bold text-slate-600 block">Indikator Aktif:</span>
               <span className={`text-xl font-black ${
-                isTriggered ? 'text-rose-400' : 'text-slate-300'
+                isTriggered ? 'text-red-600' : 'text-slate-800'
               }`}>
                 {trueCount} / 3 Kondisi
               </span>
             </div>
 
-            <div className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-lg ${
+            <div className={`px-4 py-2.5 rounded-xl font-extrabold text-xs flex items-center gap-1.5 border ${
               isTriggered 
-                ? 'bg-rose-600 text-white shadow-rose-600/30 animate-pulse' 
-                : 'bg-slate-800 text-slate-300 border border-slate-700'
+                ? 'bg-red-600 text-white border-red-700' 
+                : 'bg-emerald-50 text-emerald-900 border-emerald-300'
             }`}>
-              {isTriggered ? <AlertTriangle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4 text-emerald-400" />}
-              <span>{isTriggered ? 'TRIGGER AKTIF (KIRIM NOTIFIKASI RT)' : 'STATUS NORMAL'}</span>
+              {isTriggered ? <AlertTriangle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4 text-emerald-600" />}
+              <span>{isTriggered ? 'SIAGA BANJIR AKTIF' : 'KONDISI AMAN'}</span>
             </div>
           </div>
         </div>
@@ -119,99 +118,99 @@ export default function RuleEngineSimulator({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
           
           {/* Condition 1: BPBD Pos Pantau */}
-          <div className={`p-4 rounded-xl border transition-all ${
+          <div className={`p-4 rounded-xl border-2 transition-all ${
             cond1?.satisfied 
-              ? 'bg-amber-950/40 border-amber-500/50 text-amber-200' 
-              : 'bg-slate-800/40 border-slate-700 text-slate-400'
+              ? 'bg-amber-50 border-amber-400 text-slate-900' 
+              : 'bg-slate-50 border-slate-200 text-slate-700'
           }`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Kondisi 1: BPBD</span>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                cond1?.satisfied ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-700 text-slate-400'
+              <span className="text-xs font-extrabold uppercase tracking-wider text-slate-600">Indikator 1: BPBD</span>
+              <span className={`px-2 py-0.5 rounded text-xs font-extrabold ${
+                cond1?.satisfied ? 'bg-amber-200 text-amber-900' : 'bg-slate-200 text-slate-700'
               }`}>
-                {cond1?.satisfied ? 'TRUE' : 'FALSE'}
+                {cond1?.satisfied ? 'TERPENUHI' : 'NORMAL'}
               </span>
             </div>
-            <h4 className="text-sm font-bold text-white mb-1">Pos Pantau Siaga 3, 2, atau 1</h4>
+            <h4 className="text-sm font-extrabold text-slate-900 mb-1">Pintu Air Siaga 3, 2, atau 1</h4>
             <p className="text-xs leading-relaxed mb-3">{cond1?.explanation}</p>
             
-            <div className="pt-2 border-t border-slate-700/60 flex gap-2">
+            <div className="pt-2 border-t border-slate-200 flex gap-2">
               <button
                 disabled={isSimulating}
                 onClick={() => handleToggleBpbd(true)}
-                className="flex-1 py-1 px-2 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-300 font-semibold text-[11px] border border-amber-500/30"
+                className="flex-1 py-1.5 px-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
               >
-                Set Siaga 2 (Kritis)
+                Uji Siaga 2
               </button>
               <button
                 disabled={isSimulating}
                 onClick={() => handleToggleBpbd(false)}
-                className="flex-1 py-1 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] border border-slate-700"
+                className="flex-1 py-1.5 px-2 rounded-lg bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs border border-slate-300"
               >
-                Set Normal
+                Reset Normal
               </button>
             </div>
           </div>
 
           {/* Condition 2: BMKG CAP API */}
-          <div className={`p-4 rounded-xl border transition-all ${
+          <div className={`p-4 rounded-xl border-2 transition-all ${
             cond2?.satisfied 
-              ? 'bg-sky-950/40 border-sky-500/50 text-sky-200' 
-              : 'bg-slate-800/40 border-slate-700 text-slate-400'
+              ? 'bg-blue-50 border-blue-400 text-slate-900' 
+              : 'bg-slate-50 border-slate-200 text-slate-700'
           }`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Kondisi 2: BMKG CAP</span>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                cond2?.satisfied ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-700 text-slate-400'
+              <span className="text-xs font-extrabold uppercase tracking-wider text-slate-600">Indikator 2: BMKG</span>
+              <span className={`px-2 py-0.5 rounded text-xs font-extrabold ${
+                cond2?.satisfied ? 'bg-blue-200 text-blue-900' : 'bg-slate-200 text-slate-700'
               }`}>
-                {cond2?.satisfied ? 'TRUE' : 'FALSE'}
+                {cond2?.satisfied ? 'TERPENUHI' : 'NORMAL'}
               </span>
             </div>
-            <h4 className="text-sm font-bold text-white mb-1">Heavy-Rain Warning di Kecamatan</h4>
+            <h4 className="text-sm font-extrabold text-slate-900 mb-1">Peringatan Hujan Ekstrem</h4>
             <p className="text-xs leading-relaxed mb-3">{cond2?.explanation}</p>
             
-            <div className="pt-2 border-t border-slate-700/60 flex gap-2">
+            <div className="pt-2 border-t border-slate-200 flex gap-2">
               <button
                 disabled={isSimulating}
                 onClick={() => handleToggleBmkg(true)}
-                className="flex-1 py-1 px-2 rounded bg-sky-600/30 hover:bg-sky-600/50 text-sky-300 font-semibold text-[11px] border border-sky-500/30"
+                className="flex-1 py-1.5 px-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs"
               >
-                Set Warning Aktif
+                Aktifkan Warning
               </button>
               <button
                 disabled={isSimulating}
                 onClick={() => handleToggleBmkg(false)}
-                className="flex-1 py-1 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] border border-slate-700"
+                className="flex-1 py-1.5 px-2 rounded-lg bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs border border-slate-300"
               >
-                Matikan Warning
+                Matikan
               </button>
             </div>
           </div>
 
           {/* Condition 3: Internal Verified Reports */}
-          <div className={`p-4 rounded-xl border transition-all ${
+          <div className={`p-4 rounded-xl border-2 transition-all ${
             cond3?.satisfied 
-              ? 'bg-rose-950/40 border-rose-500/50 text-rose-200' 
-              : 'bg-slate-800/40 border-slate-700 text-slate-400'
+              ? 'bg-red-50 border-red-400 text-slate-900' 
+              : 'bg-slate-50 border-slate-200 text-slate-700'
           }`}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Kondisi 3: Internal</span>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                cond3?.satisfied ? 'bg-rose-500/20 text-rose-300' : 'bg-slate-700 text-slate-400'
+              <span className="text-xs font-extrabold uppercase tracking-wider text-slate-600">Indikator 3: Warga</span>
+              <span className={`px-2 py-0.5 rounded text-xs font-extrabold ${
+                cond3?.satisfied ? 'bg-red-200 text-red-900' : 'bg-slate-200 text-slate-700'
               }`}>
-                {cond3?.satisfied ? 'TRUE' : 'FALSE'}
+                {cond3?.satisfied ? 'TERPENUHI' : 'NORMAL'}
               </span>
             </div>
-            <h4 className="text-sm font-bold text-white mb-1">&ge; 3 Laporan Banjir Verified (2 Jam)</h4>
+            <h4 className="text-sm font-extrabold text-slate-900 mb-1">&ge; 3 Laporan Banjir Terverifikasi</h4>
             <p className="text-xs leading-relaxed mb-3">{cond3?.explanation}</p>
             
-            <div className="pt-2 border-t border-slate-700/60">
+            <div className="pt-2 border-t border-slate-200">
               <button
                 disabled={isSimulating}
                 onClick={handleInjectReports}
-                className="w-full py-1 px-2 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 font-semibold text-[11px] border border-rose-500/30"
+                className="w-full py-1.5 px-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs"
               >
-                + Suntik 3 Laporan Verified Simulasi
+                + Tambah 3 Laporan Simulasi
               </button>
             </div>
           </div>
@@ -220,13 +219,13 @@ export default function RuleEngineSimulator({
       </div>
 
       {/* BPBD Pos Pantau Live Board */}
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 shadow-xl space-y-4">
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Gauge className="w-5 h-5 text-sky-400" />
-            <h3 className="font-bold text-white text-base">Status Pintu Air & Pos Pantau BPBD DKI Jakarta</h3>
+            <Gauge className="w-5 h-5 text-blue-600" />
+            <h3 className="font-extrabold text-slate-900 text-base">Pantauan Tinggi Muka Air (Pintu Air BPBD DKI)</h3>
           </div>
-          <span className="text-xs text-slate-400">Update Real-Time Tiap 15 Menit</span>
+          <span className="text-xs font-semibold text-slate-600">Data Real-Time</span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
@@ -235,28 +234,28 @@ export default function RuleEngineSimulator({
             return (
               <div 
                 key={post.id}
-                className={`p-3 rounded-xl border ${
-                  isSiaga ? 'bg-amber-950/30 border-amber-500/40' : 'bg-slate-800/40 border-slate-700'
+                className={`p-3.5 rounded-xl border ${
+                  isSiaga ? 'bg-amber-50 border-amber-300' : 'bg-slate-50 border-slate-200'
                 }`}
               >
-                <div className="flex items-start justify-between">
-                  <strong className="text-white font-bold block">{post.name}</strong>
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    post.siaga_level === 1 ? 'bg-rose-600 text-white' :
+                <div className="flex items-start justify-between gap-2">
+                  <strong className="text-slate-900 font-extrabold block">{post.name}</strong>
+                  <span className={`px-2 py-0.5 rounded text-[11px] font-extrabold shrink-0 ${
+                    post.siaga_level === 1 ? 'bg-red-600 text-white' :
                     post.siaga_level === 2 ? 'bg-orange-600 text-white' :
-                    post.siaga_level === 3 ? 'bg-amber-500 text-slate-950 font-extrabold' :
-                    'bg-slate-700 text-slate-300'
+                    post.siaga_level === 3 ? 'bg-amber-200 text-amber-950' :
+                    'bg-emerald-100 text-emerald-900'
                   }`}>
                     {post.status}
                   </span>
                 </div>
 
                 <div className="mt-2 flex items-baseline justify-between">
-                  <span className="text-slate-400 text-[11px]">Tinggi Muka Air (TMA):</span>
-                  <span className="text-base font-extrabold text-white">{post.water_level_cm} cm</span>
+                  <span className="text-slate-600 font-semibold">Tinggi Air:</span>
+                  <span className="text-base font-black text-slate-900">{post.water_level_cm} cm</span>
                 </div>
 
-                <p className="text-[10px] text-slate-400 mt-1 truncate">
+                <p className="text-xs text-slate-600 mt-1 truncate">
                   Aliran: {post.flow_destination}
                 </p>
               </div>
@@ -266,26 +265,26 @@ export default function RuleEngineSimulator({
       </div>
 
       {/* BMKG Weather Forecast Intervals */}
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 shadow-xl space-y-4">
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <CloudRain className="w-5 h-5 text-sky-400" />
-            <h3 className="font-bold text-white text-base">Prakiraan Cuaca Per 3 Jam (BMKG API)</h3>
+            <CloudRain className="w-5 h-5 text-blue-600" />
+            <h3 className="font-extrabold text-slate-900 text-base">Prakiraan Cuaca BMKG Per 3 Jam</h3>
           </div>
-          <span className="text-xs text-slate-400">{bmkgForecast.station || "Kemayoran"}</span>
+          <span className="text-xs font-semibold text-slate-600">{bmkgForecast.station || "Kemayoran"}</span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {bmkgForecast.intervals?.map((slot, idx) => (
-            <div key={idx} className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 space-y-2 text-xs">
-              <div className="flex items-center justify-between text-slate-400">
-                <span className="font-semibold text-sky-300">{slot.time_slot}</span>
-                <span className="text-white font-bold">{slot.temperature}</span>
+            <div key={idx} className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-blue-800">{slot.time_slot}</span>
+                <span className="text-slate-900 font-extrabold text-sm">{slot.temperature}</span>
               </div>
-              <h4 className="text-sm font-bold text-white">{slot.weather}</h4>
-              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-700/60">
-                <span>Peluang Hujan: <strong className="text-amber-300">{slot.rain_probability}</strong></span>
-                <span>Kecepatan Angin: {slot.wind_speed}</span>
+              <h4 className="text-sm font-extrabold text-slate-900">{slot.weather}</h4>
+              <div className="flex items-center justify-between text-xs text-slate-700 pt-1 border-t border-slate-200">
+                <span>Peluang Hujan: <strong className="text-amber-800">{slot.rain_probability}</strong></span>
+                <span>Angin: {slot.wind_speed}</span>
               </div>
             </div>
           ))}

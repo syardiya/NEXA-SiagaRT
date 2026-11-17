@@ -1,3 +1,6 @@
+import dns from 'node:dns';
+dns.setDefaultResultOrder('ipv4first');
+
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -8,7 +11,13 @@ import multer from 'multer';
 import dotenv from 'dotenv';
 import { db } from './db.js';
 import { evaluateAreaFloodRule, evaluateAllAreas } from './ruleEngine.js';
-import { processReportWithGemini, calculateFloodPriorityScore } from './geminiService.js';
+import { 
+  processReportWithGemini, 
+  calculateFloodPriorityScore,
+  buildHumanFeedbackMemory,
+  buildFineTuningDataset,
+  optimizeNgoFleetDispatch
+} from './geminiService.js';
 import { generateTelegramToken, handleTelegramWebhook, sendTelegramNotification, startTelegramPolling } from './telegramService.js';
 
 dotenv.config();
@@ -255,8 +264,8 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
   });
 });
 
-// Daftar pengguna stakeholder: Dilindungi requireAuth demi UU PDP
-app.get('/api/auth/users', requireAuth(['RT_Leader', 'NGO', 'Admin']), (req, res) => {
+// Daftar pengguna stakeholder & relawan: Dilindungi requireAuth demi UU PDP
+app.get('/api/auth/users', requireAuth(['RT_Leader', 'NGO', 'Resident', 'Admin']), (req, res) => {
   const users = db.get('users');
   const safeUsers = users.map(u => ({
     id: u.id,
@@ -272,7 +281,7 @@ app.get('/api/auth/users', requireAuth(['RT_Leader', 'NGO', 'Admin']), (req, res
 
 // Pendaftaran Ketua RT Baru (Wilayah belum terdaftar)
 app.post('/api/auth/register-rt', (req, res) => {
-  const { full_name, phone_number, kelurahan, kecamatan, kota, rw_code, rt_code, lat, lng } = req.body;
+  const { full_name, phone_number, pin, kelurahan, kecamatan, kota, rw_code, rt_code, lat, lng } = req.body;
 
   if (!full_name || !kelurahan || !rt_code || !rw_code) {
     return res.status(400).json({ success: false, error: "Nama, Kelurahan, RT, dan RW wajib diisi." });
@@ -317,26 +326,30 @@ app.post('/api/auth/register-rt', (req, res) => {
     full_name,
     role: "RT_Leader",
     phone_number: phone_number || "0812-xxxx-xxxx",
+    pin: String(pin || '1234').trim(),
     telegram_chat_id: null,
     telegram_subscribe_token: token,
     rt_rw_id: area.id,
     area_label: `${cleanRT} / ${cleanRW} ${kelurahan}`,
-    is_telegram_synced: false
+    is_telegram_synced: false,
+    created_at: new Date().toISOString()
   };
 
   db.insert('users', newUser);
+  const authToken = generateAuthToken(newUser);
 
   res.status(201).json({
     success: true,
     user: newUser,
+    token: authToken,
     area,
     message: `Ketua ${cleanRT} ${kelurahan} berhasil didaftarkan!`
   });
 });
 
-// Pendaftaran Warga Biasa / Relawan / NGO
+// Pendaftaran Relawan Warga (Volunteer) / NGO
 app.post('/api/auth/register-volunteer', (req, res) => {
-  const { full_name, phone_number, role, rt_rw_id, organization_name, notes } = req.body;
+  const { full_name, phone_number, pin, role, rt_rw_id, organization_name, notes } = req.body;
 
   if (!full_name) {
     return res.status(400).json({ success: false, error: "Nama lengkap wajib diisi." });
@@ -348,20 +361,24 @@ app.post('/api/auth/register-volunteer', (req, res) => {
   const newUser = {
     id: `user-${(role || 'resident').toLowerCase()}-${Date.now()}`,
     full_name: organization_name ? `${full_name} (${organization_name})` : full_name,
-    role: role || "Resident", // 'Resident' atau 'NGO'
+    role: role || "Resident", // 'Resident' (Relawan Warga) atau 'NGO' (Relawan Organisasi)
     phone_number: phone_number || "0812-xxxx-xxxx",
+    pin: String(pin || '1234').trim(),
     telegram_chat_id: null,
     telegram_subscribe_token: null,
     rt_rw_id: matchedArea ? matchedArea.id : null,
-    area_label: matchedArea ? `${matchedArea.rt_code} ${matchedArea.rw_code} ${matchedArea.kelurahan}` : "Relawan Gabungan DKI",
-    notes: notes || "Relawan Siaga Bencana Banjir"
+    area_label: matchedArea ? `${matchedArea.rt_code} ${matchedArea.rw_code} ${matchedArea.kelurahan}` : "Relawan Siaga DKI",
+    notes: notes || "Relawan Siaga Bencana Banjir",
+    created_at: new Date().toISOString()
   };
 
   db.insert('users', newUser);
+  const authToken = generateAuthToken(newUser);
 
   res.status(201).json({
     success: true,
     user: newUser,
+    token: authToken,
     message: "Pendaftaran relawan berhasil!"
   });
 });
@@ -396,11 +413,28 @@ app.get('/api/reports/public', (req, res) => {
       description: r.description,
       // PRIVACY SAFEGUARD: Public only sees RT/RW geom_center, NEVER exact address or GPS!
       public_center: area ? area.geom_center : { lat: -6.2088, lng: 106.8456 },
-      // PRIVACY SAFEGUARD: Blurred photo for public view
+      // PRIVACY SAFEGUARD: Blurred photo for public view (real canvas pixel redaction)
       photo_url: r.blurred_photo_url || r.raw_photo_url,
       privacy_masked: r.privacy_masked,
+      flood_type: r.flood_type || "HUJAN_LOKAL_DRAINASE",
+      flood_type_label: r.flood_type_label || "Genangan Hujan Lokal / Sumbatan Drainase Mikro",
+      flood_severity: r.flood_severity || (r.ai_suggested_severity === 'Berat' ? 'High' : 'Medium'),
+      emergency_priority: r.emergency_priority || (r.ai_suggested_severity === 'Berat' ? 'High' : 'Medium'),
+      priority_score: r.priority_score || 50,
+      indicator_breakdown: r.indicator_breakdown || null,
+      nexa_key_answers: r.nexa_key_answers || null,
+      data_integrity: r.data_integrity || {
+        timestamp: r.created_at,
+        water_depth_status: "Belum Diketahui (Unknown)",
+        sources: ["Laporan Warga", "Analisis AI NEXA"]
+      },
       ai_flag: r.ai_flag,
+      ai_confidence: r.ai_confidence,
+      ai_reasoning: r.ai_reasoning,
       ai_suggested_severity: r.ai_suggested_severity,
+      ai_suggested_action: r.ai_suggested_action,
+      recommended_volunteers: r.recommended_volunteers,
+      learned_from_samples: r.learned_from_samples,
       status: r.status,
       created_at: r.created_at,
       // Sensitive fields stripped: exact_location, reporter_name, reporter_phone, raw_photo_url
@@ -433,8 +467,8 @@ app.get('/api/reports/public', (req, res) => {
   });
 });
 
-// Verified View (For RT Leaders & Admins): Dilindungi requireAuth demi kepatuhan UU PDP
-app.get('/api/reports/verified', requireAuth(['RT_Leader', 'NGO', 'Admin']), (req, res) => {
+// Verified View (For RT Leaders, Volunteers & Admins): Dilindungi requireAuth demi kepatuhan UU PDP
+app.get('/api/reports/verified', requireAuth(['RT_Leader', 'NGO', 'Resident', 'Admin']), (req, res) => {
   const reports = db.get('reports');
   res.json({
     success: true,
@@ -457,13 +491,15 @@ app.post('/api/reports', reportLimiter, upload.single('photo'), async (req, res)
       lng,
       reporter_name,
       reporter_phone,
-      photo_url_external
+      photo_url_external,
+      blurred_photo_url
     } = req.body;
 
     let photoUrl = photo_url_external || "https://images.unsplash.com/photo-1547683905-f686c993aae5?auto=format&fit=crop&w=800&q=80";
     if (req.file) {
       photoUrl = `/uploads/${req.file.filename}`;
     }
+    const publicBlurredUrl = blurred_photo_url || photoUrl;
 
     // Resolve Area
     const areas = db.get('areas');
@@ -475,25 +511,31 @@ app.post('/api/reports', reportLimiter, upload.single('photo'), async (req, res)
       matchedArea = areas[0];
     }
 
-    // Calculate dynamic rain countdown from live weather forecast
-    let rainCountdownMinutes = 90;
+    // Calculate dynamic rain countdown from live weather forecast (null if no rain predicted)
+    let rainCountdownMinutes = null;
     try {
       const forecast = await getLiveWeatherForecast();
       if (forecast?.active_warning?.expected_heavy_rain) {
         const diffMs = new Date(forecast.active_warning.expected_heavy_rain).getTime() - Date.now();
-        rainCountdownMinutes = Math.max(15, Math.round(diffMs / 60000));
+        if (diffMs > 0) {
+          rainCountdownMinutes = Math.max(15, Math.round(diffMs / 60000));
+        } else {
+          rainCountdownMinutes = 0; // Hujan sedang berlangsung
+        }
       }
     } catch (e) {
-      // fallback to default
+      // tetap null jika sumber cuaca tidak tersedia
     }
 
-    // Run Google Gemini AI Pipeline in background/inline
+    // Run Google Gemini AI Pipeline with Continuous Human-Feedback Memory
     const aiResult = await processReportWithGemini({
       hazardType: hazard_type,
       description,
       photoUrl,
       kelurahan: matchedArea.kelurahan,
-      bmkgRainCountdownMinutes: rainCountdownMinutes
+      bmkgRainCountdownMinutes: rainCountdownMinutes,
+      historicalReports: db.get('reports'),
+      bpbdPosts: db.get('bpbd_posts')
     });
 
     const newReport = {
@@ -507,6 +549,8 @@ app.post('/api/reports', reportLimiter, upload.single('photo'), async (req, res)
       rt_code: rt_code || matchedArea.rt_code,
       hazard_type: hazard_type || "Clogged_Drain",
       hazard_type_label: hazard_type === 'Clogged_Drain' ? "Saluran Tersumbat" : (hazard_type === 'Trash' ? "Tumpukan Sampah" : "Genangan Banjir"),
+      flood_type: aiResult.flood_type || "HUJAN_LOKAL_DRAINASE",
+      flood_type_label: aiResult.flood_type_label || "Genangan Hujan Lokal / Sumbatan Drainase Mikro",
       description: description || "Laporan bahaya drainase warga",
       exact_location: {
         address: exact_address || `Area ${matchedArea.rt_code} ${matchedArea.rw_code} ${matchedArea.kelurahan}`,
@@ -514,13 +558,24 @@ app.post('/api/reports', reportLimiter, upload.single('photo'), async (req, res)
         lng: Number(lng) || matchedArea.geom_center.lng + (Math.random() * 0.002 - 0.001)
       },
       raw_photo_url: photoUrl,
-      blurred_photo_url: photoUrl, // Privacy mask filter applied in UI
+      blurred_photo_url: publicBlurredUrl,
       privacy_masked: aiResult.privacy_masked ?? true,
       processed_by: aiResult.processed_by || "Google Gemini 1.5 Flash",
+      learned_from_samples: aiResult.learned_from_samples ?? 0,
       ai_flag: aiResult.ai_flag,
       ai_confidence: aiResult.ai_confidence,
       ai_reasoning: aiResult.ai_reasoning,
       ai_suggested_severity: aiResult.ai_suggested_severity,
+      flood_severity: aiResult.flood_severity || "Medium",
+      emergency_priority: aiResult.emergency_priority || "Medium",
+      priority_score: aiResult.priority_score || 55,
+      indicator_breakdown: aiResult.indicator_breakdown || null,
+      nexa_key_answers: aiResult.nexa_key_answers || null,
+      data_integrity: aiResult.data_integrity || {
+        timestamp: new Date().toISOString(),
+        water_depth_status: "Belum Diketahui (Unknown)",
+        sources: ["Laporan Warga", "Analisis AI NEXA"]
+      },
       ai_suggested_action: aiResult.ai_suggested_action,
       recommended_volunteers: aiResult.recommended_volunteers,
       status: "Pending",
@@ -529,6 +584,45 @@ app.post('/api/reports', reportLimiter, upload.single('photo'), async (req, res)
     };
 
     db.insert('reports', newReport);
+
+    // Jika laporan warga berkategori Flood (RESPOND phase), otomatis teruskan ke antrean triage RT/RW & Volunteer
+    if (newReport.hazard_type === 'Flood') {
+      const descLower = (description || '').toLowerCase();
+      const hasVulnerable = descLower.includes('lansia') || descLower.includes('balita') || descLower.includes('bayi') || descLower.includes('anak') || descLower.includes('sakit') || descLower.includes('ibu') || descLower.includes('kursi roda') || descLower.includes('disabilitas');
+      const explicitDepth = req.body.water_depth_cm !== undefined && req.body.water_depth_cm !== '' ? Number(req.body.water_depth_cm) : null;
+      const scoreResult = calculateFloodPriorityScore({
+        waterDepthCm: explicitDepth, // Rule 4: null if not explicitly measured
+        hasVulnerablePeople: hasVulnerable,
+        description: newReport.description,
+        aiSeverity: aiResult.ai_suggested_severity,
+        isNight: false
+      });
+
+      const autoEvacLog = {
+        id: `fl-${Date.now()}`,
+        report_id: newReport.id,
+        rt_rw_id: matchedArea.id,
+        kelurahan: matchedArea.kelurahan,
+        rw_code: newReport.rw_code,
+        rt_code: newReport.rt_code,
+        water_depth_cm: explicitDepth,
+        has_vulnerable_people: hasVulnerable,
+        vulnerable_details: newReport.description,
+        flood_severity: scoreResult.flood_severity,
+        priority_score: scoreResult.score,
+        priority_level: scoreResult.level,
+        score_breakdown: scoreResult.breakdown,
+        nexa_key_answers: scoreResult.nexa_key_answers,
+        data_integrity: scoreResult.data_integrity,
+        ai_recommendation: aiResult.ai_suggested_action,
+        handled_by_ngo_id: null,
+        handled_by_name: null,
+        status: "Waiting_NGO",
+        dispatch_notes: null,
+        created_at: new Date().toISOString()
+      };
+      db.insert('flood_response_logs', autoEvacLog);
+    }
 
     // Notify RT leader if synced with Telegram
     const users = db.get('users');
@@ -552,12 +646,13 @@ app.post('/api/reports', reportLimiter, upload.single('photo'), async (req, res)
   }
 });
 
-// RT Leader verifies report (Dilindungi requireAuth)
-app.patch('/api/reports/:id/verify', requireAuth(['RT_Leader', 'Admin']), (req, res) => {
-  const { status, verified_by_id } = req.body; // status: 'Verified' | 'Rejected'
+// RT Leader (Prevention) & Volunteer/NGO (Response) verify/confirm report (Dilindungi requireAuth)
+app.patch('/api/reports/:id/verify', requireAuth(['RT_Leader', 'NGO', 'Resident', 'Admin']), (req, res) => {
+  const { status, verified_by_id, dispatch_notes } = req.body; // status: 'Verified' | 'Rejected' | 'Handled_NGO'
   const report = db.update('reports', req.params.id, {
     status: status || 'Verified',
     verified_by_id: verified_by_id || req.user?.userId || 'user-rt-bambang',
+    dispatch_notes: dispatch_notes || null,
     verified_at: new Date().toISOString()
   });
 
@@ -631,8 +726,8 @@ app.post('/api/tasks', requireAuth(['RT_Leader', 'Admin']), (req, res) => {
   res.status(201).json({ success: true, task: newTask });
 });
 
-// Complete task: Dilindungi requireAuth
-app.patch('/api/tasks/:id/complete', requireAuth(['RT_Leader', 'Admin']), upload.single('after_photo'), (req, res) => {
+// Complete task: Dilindungi requireAuth (RT Leader & Relawan dapat mengunggah foto bukti)
+app.patch('/api/tasks/:id/complete', requireAuth(['RT_Leader', 'NGO', 'Resident', 'Admin']), upload.single('after_photo'), (req, res) => {
   let afterPhotoUrl = req.body.after_photo_url || "https://images.unsplash.com/photo-1590682680695-43b964a3ae17?auto=format&fit=crop&w=800&q=80";
   if (req.file) {
     afterPhotoUrl = `/uploads/${req.file.filename}`;
@@ -666,14 +761,74 @@ app.get('/api/evacuations', (req, res) => {
   res.json({ success: true, evacuations: sorted });
 });
 
+// Superintelligence Multi-Point NGO Fleet Dispatch Optimizer
+app.get('/api/evacuations/optimize', (req, res) => {
+  const availableBoats = Number(req.query.boats) || 2;
+  const evacuations = db.get('flood_response_logs');
+  const areas = db.get('areas');
+  const plan = optimizeNgoFleetDispatch({
+    evacuations,
+    areas,
+    availableBoats
+  });
+  res.json({ success: true, optimization: plan });
+});
+
+// AI Continuous Learning Memory Stats & Fine-Tuning Dataset Exporter
+app.get('/api/ai/learning-stats', (req, res) => {
+  const reports = db.get('reports');
+  const memory = buildHumanFeedbackMemory(reports);
+  res.json({
+    success: true,
+    learning_engine: "NEXA Memory-Augmented Few-Shot & Token Weight Calibration",
+    stats: {
+      total_reports: reports.length,
+      verified_ground_truth: memory.total_verified,
+      rejected_ground_truth: memory.total_rejected,
+      learned_valid_keywords: Object.entries(memory.validTokenCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12)
+        .map(([word, count]) => ({ word, count })),
+      learned_rejected_keywords: Object.entries(memory.rejectedTokenCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([word, count]) => ({ word, count })),
+      few_shot_examples: memory.fewShotExamples
+    }
+  });
+});
+
+app.get('/api/ai/training-dataset', (req, res) => {
+  const reports = db.get('reports');
+  const dataset = buildFineTuningDataset(reports);
+  if (req.query.format === 'jsonl') {
+    const jsonlString = dataset.map(d => JSON.stringify(d.jsonl_entry)).join('\n');
+    res.setHeader('Content-Type', 'application/jsonl; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="nexa-gemini-finetune.jsonl"');
+    return res.send(jsonlString);
+  }
+  res.json({
+    success: true,
+    count: dataset.length,
+    format: "Google Gemini Supervised Fine-Tuning JSONL Schema",
+    dataset
+  });
+});
+
 app.post('/api/evacuations', (req, res) => {
-  const { rt_rw_id, water_depth_cm, has_vulnerable_people, vulnerable_details, is_night } = req.body;
+  const { rt_rw_id, water_depth_cm, has_vulnerable_people, vulnerable_details, access_isolated, affected_households, is_night } = req.body;
   const areas = db.get('areas');
   const area = areas.find(a => a.id === rt_rw_id) || areas[0];
 
+  const isDepthProvided = water_depth_cm !== undefined && water_depth_cm !== null && water_depth_cm !== '';
+  const parsedDepth = isDepthProvided ? Number(water_depth_cm) : null;
+
   const scoreResult = calculateFloodPriorityScore({
-    waterDepthCm: water_depth_cm,
+    waterDepthCm: parsedDepth,
     hasVulnerablePeople: Boolean(has_vulnerable_people),
+    vulnerableDetails: vulnerable_details || '',
+    accessIsolated: Boolean(access_isolated),
+    affectedHouseholds: affected_households !== undefined && affected_households !== '' ? Number(affected_households) : null,
     isNight: Boolean(is_night)
   });
 
@@ -683,12 +838,16 @@ app.post('/api/evacuations', (req, res) => {
     kelurahan: area.kelurahan,
     rw_code: area.rw_code,
     rt_code: area.rt_code,
-    water_depth_cm: Number(water_depth_cm),
+    water_depth_cm: parsedDepth,
+    access_isolated: Boolean(access_isolated),
     has_vulnerable_people: Boolean(has_vulnerable_people),
     vulnerable_details: vulnerable_details || (has_vulnerable_people ? "Terdapat kelompok rentan (lansia/balita)" : "Tidak ada warga rentan"),
+    flood_severity: scoreResult.flood_severity,
     priority_score: scoreResult.score,
     priority_level: scoreResult.level,
     score_breakdown: scoreResult.breakdown,
+    nexa_key_answers: scoreResult.nexa_key_answers,
+    data_integrity: scoreResult.data_integrity,
     handled_by_ngo_id: null,
     handled_by_name: null,
     status: "Waiting_NGO",
@@ -700,16 +859,16 @@ app.post('/api/evacuations', (req, res) => {
   res.status(201).json({ success: true, evacuation: newLog });
 });
 
-app.patch('/api/evacuations/:id/handle', requireAuth(['NGO', 'Admin']), (req, res) => {
+app.patch('/api/evacuations/:id/handle', requireAuth(['RT_Leader', 'NGO', 'Resident', 'Admin']), (req, res) => {
   const { handled_by_ngo_id, dispatch_notes } = req.body;
   const users = db.get('users');
-  const ngo = users.find(u => u.id === handled_by_ngo_id) || users.find(u => u.role === 'NGO');
+  const handler = users.find(u => u.id === (handled_by_ngo_id || req.user?.userId)) || users.find(u => u.role === 'NGO');
 
   const log = db.update('flood_response_logs', req.params.id, {
     status: 'Dispatched',
-    handled_by_ngo_id: ngo ? ngo.id : 'user-ngo-pmi',
-    handled_by_name: ngo ? ngo.full_name : 'Tim SAR NGO Gabungan',
-    dispatch_notes: dispatch_notes || 'Tim rescue & armada perahu karet bergerak menuju lokasi evakuasi.',
+    handled_by_ngo_id: handler ? handler.id : 'user-ngo-pmi',
+    handled_by_name: handler ? handler.full_name : 'Relawan Siaga & Arahan RT/RW',
+    dispatch_notes: dispatch_notes || 'Penanganan lapangan oleh warga arahan RT/RW & dukungan Relawan.',
     handled_at: new Date().toISOString()
   });
 
@@ -767,6 +926,8 @@ app.post('/api/rule-engine/simulate', (req, res, next) => {
   if (toggle_bmkg_warning !== undefined) {
     const currentForecast = db.data.bmkg_forecast || {};
     currentForecast.active_warning.is_active = Boolean(toggle_bmkg_warning);
+    currentForecast.manual_override = Boolean(toggle_bmkg_warning);
+    liveWeatherCache = null; // Clear cache so override applies immediately
     db.data.bmkg_forecast = currentForecast;
     db.saveData();
   }
@@ -828,7 +989,9 @@ async function getLiveWeatherForecast() {
   }
 
   try {
-    const res = await fetch("https://api.open-meteo.com/v1/forecast?latitude=-6.2214&longitude=106.8562&current=temperature_2m,relative_humidity_2m,precipitation,rain,weather_code,wind_speed_10m&hourly=precipitation_probability,rain&timezone=Asia%2FJakarta&forecast_days=1");
+    const res = await fetch("https://api.open-meteo.com/v1/forecast?latitude=-6.2214&longitude=106.8562&current=temperature_2m,relative_humidity_2m,precipitation,rain,weather_code,wind_speed_10m&hourly=precipitation_probability,rain&timezone=Asia%2FJakarta&forecast_days=1", {
+      signal: AbortSignal.timeout(10000)
+    });
     const data = await res.json();
 
     if (data.hourly && Array.isArray(data.hourly.time)) {
@@ -837,68 +1000,89 @@ async function getLiveWeatherForecast() {
       const rains = data.hourly.rain;
       
       let nextRainTime = null;
-      let highestProb = 75;
-      let rainProbStr = "80%";
+      let highestProb = 0;
+      let maxRainMm = 0;
+      const sliceStats = [
+        { label: "1 - 3 Jam Kedepan", fromH: 0, toH: 3, probs: [], rains: [] },
+        { label: "3 - 6 Jam Kedepan", fromH: 3, toH: 6, probs: [], rains: [] },
+        { label: "6 - 9 Jam Kedepan", fromH: 6, toH: 9, probs: [], rains: [] }
+      ];
 
       for (let i = 0; i < times.length; i++) {
         const hourTime = new Date(times[i]).getTime();
-        if (hourTime >= now) {
-          if (probs[i] >= 50 || rains[i] > 0.2) {
+        const diffHours = (hourTime - now) / 3600000;
+        if (hourTime >= now && diffHours <= 12) {
+          const p = Number(probs[i]) || 0;
+          const r = Number(rains[i]) || 0;
+          if (p > highestProb) highestProb = p;
+          if (r > maxRainMm) maxRainMm = r;
+          if (!nextRainTime && (p >= 50 || r >= 0.5)) {
             nextRainTime = new Date(hourTime);
-            highestProb = probs[i];
-            rainProbStr = `${probs[i]}%`;
-            break;
+          }
+          for (const sl of sliceStats) {
+            if (diffHours >= sl.fromH && diffHours < sl.toH) {
+              sl.probs.push(p);
+              sl.rains.push(r);
+            }
           }
         }
       }
 
-      if (!nextRainTime) {
-        nextRainTime = new Date(now + 90 * 60 * 1000); // 1.5 jam lagi jika cerah
-      }
-
-      const currentTemp = Math.round(data.current?.temperature_2m || 32);
+      const rainProbStr = `${highestProb}%`;
+      const currentTemp = Math.round(data.current?.temperature_2m || 30);
       const currentHumidity = Math.round(data.current?.relative_humidity_2m || 75);
       const windSpeed = Math.round(data.current?.wind_speed_10m || 12);
+      const currentWeatherCode = Number(data.current?.weather_code) || 0;
+
+      // Cek apakah ada Peringatan Dini resmi dari BMKG CAP (diambil oleh server/services/bmkgCap.js)
+      const capWarning = db.data.bmkg_forecast?.active_warning;
+      const hasOfficialBmkgCap = Boolean(capWarning && capWarning.source === 'BMKG CAP' && capWarning.is_active);
+
+      const isMeteorologicalWarning = highestProb >= 55 || maxRainMm >= 1.0 || currentWeatherCode >= 51;
+      const isActiveWarning = hasOfficialBmkgCap || isMeteorologicalWarning;
+
+      const timeStr = nextRainTime
+        ? nextRainTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' })
+        : null;
+
+      const dynamicIntervals = sliceStats.map((sl) => {
+        const maxP = sl.probs.length ? Math.max(...sl.probs) : highestProb;
+        const maxR = sl.rains.length ? Math.max(...sl.rains) : 0;
+        return {
+          time_slot: sl.label,
+          weather: maxR >= 2.5 || maxP >= 75 ? "Hujan Sedang - Lebat" : maxP >= 45 || maxR >= 0.3 ? "Berawan - Potensi Hujan" : "Cerah Berawan",
+          temperature: `${currentTemp}°C`,
+          humidity: `${currentHumidity}%`,
+          wind_speed: `${windSpeed} km/jam`,
+          rain_probability: `${maxP}%`
+        };
+      });
 
       liveWeatherCache = {
-        station: "Stasiun Meteorologi BMKG Halim PK & Kemayoran (Live)",
+        station: hasOfficialBmkgCap
+          ? "BMKG CAP Resmi & Data Cuaca Real-Time Open-Meteo (DKI Jakarta)"
+          : "Data Cuaca Real-Time Open-Meteo (DKI Jakarta)",
         province: "DKI Jakarta",
         current_condition: `Suhu ${currentTemp}°C, Kelembaban ${currentHumidity}%, Angin ${windSpeed} km/j`,
-        active_warning: {
-          is_active: true,
-          event: "Peringatan Dini Cuaca Ekstrem BMKG (Live)",
-          headline: `Waspada Potensi Hujan Lebat (Peluang ${rainProbStr}) Sekitar Pukul ${nextRainTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' })} WIB di Jakarta`,
-          affected_kecamatan: ["Jatinegara", "Pancoran", "Tebet", "Kramat Jati", "Makasar", "Penjaringan"],
-          start_time: new Date(now - 3600000).toISOString(),
-          expected_heavy_rain: nextRainTime.toISOString(),
-          end_time: new Date(now + 5 * 3600000).toISOString()
-        },
-        intervals: [
-          {
-            time_slot: "1 - 3 Jam Kedepan",
-            weather: highestProb >= 70 ? "Hujan Sedang - Lebat" : "Berawan Tebal - Potensi Hujan",
-            temperature: `${currentTemp}°C`,
-            humidity: `${currentHumidity}%`,
-            wind_speed: `${windSpeed} km/jam`,
-            rain_probability: rainProbStr
-          },
-          {
-            time_slot: "3 - 6 Jam Kedepan",
-            weather: "Hujan Ringan - Reda",
-            temperature: `${Math.max(25, currentTemp - 2)}°C`,
-            humidity: "86%",
-            wind_speed: "10 km/jam",
-            rain_probability: "45%"
-          },
-          {
-            time_slot: "Malam Hari",
-            weather: "Berawan",
-            temperature: "26°C",
-            humidity: "82%",
-            wind_speed: "8 km/jam",
-            rain_probability: "20%"
-          }
-        ]
+        active_warning: hasOfficialBmkgCap
+          ? {
+              ...capWarning,
+              expected_heavy_rain: nextRainTime ? nextRainTime.toISOString() : null
+            }
+          : {
+              is_active: isActiveWarning,
+              source: "Open-Meteo",
+              event: isActiveWarning ? "Waspada Potensi Hujan (Open-Meteo Real-Time)" : "Cuaca Kondusif (Di Bawah Ambang Ekstrem)",
+              headline: isActiveWarning && timeStr
+                ? `Waspada Potensi Hujan (Peluang ${rainProbStr}, Curah ~${maxRainMm} mm) Sekitar Pukul ${timeStr} WIB di Jakarta`
+                : `Cuaca Jakarta Saat Ini Kondusif (Suhu ${currentTemp}°C, Peluang Hujan ${rainProbStr})`,
+              affected_kecamatan: [],
+              start_time: new Date(now).toISOString(),
+              expected_heavy_rain: nextRainTime ? nextRainTime.toISOString() : null,
+              end_time: new Date(now + 5 * 3600000).toISOString()
+            },
+        intervals: dynamicIntervals,
+        live_status: db.data.live_status || null
       };
       lastWeatherFetch = now;
       return liveWeatherCache;
@@ -1005,10 +1189,13 @@ app.get('/api/stats', (req, res) => {
   const tasks = db.get('cleanup_tasks');
   const evacuations = db.get('flood_response_logs');
   const areas = db.get('areas');
+  const users = db.get('users');
 
   const completedTasks = tasks.filter(t => t.status === 'Completed').length;
   const activeTasks = tasks.filter(t => t.status === 'In_Progress').length;
   const verifiedReports = reports.filter(r => r.status === 'Verified' || r.status === 'Task_Created' || r.status === 'Closed').length;
+  const registeredVolunteersCount = users.filter(u => u.role === 'NGO' || u.role === 'Resident').length;
+  const registeredNgoUnitsCount = users.filter(u => u.role === 'NGO').length;
   const totalVolunteers = tasks.reduce((sum, t) => sum + (t.volunteers_count || 0), 0);
   const handledEvacuations = evacuations.filter(e => e.status === 'Dispatched').length;
 
@@ -1020,11 +1207,50 @@ app.get('/api/stats', (req, res) => {
       active_tasks: activeTasks,
       completed_mitigations: completedTasks,
       total_volunteers_mobilized: totalVolunteers,
+      registered_volunteers_count: registeredVolunteersCount,
+      registered_ngo_units_count: registeredNgoUnitsCount,
       estimated_residents_protected: completedTasks * 320,
       sediment_cleared_meters: completedTasks * 25,
       evacuations_dispatched: handledEvacuations,
       active_monitoring_areas: areas.length
     }
+  });
+});
+
+// -------------------------------------------------------------
+// 9B. ADMIN WEB OWNER MANAGEMENT ENDPOINTS (PROTECTED BY ADMIN JWT)
+// -------------------------------------------------------------
+app.delete('/api/reports/:id', requireAuth(['Admin', 'RT_Leader']), (req, res) => {
+  db.delete('reports', req.params.id);
+  res.json({ success: true, message: "Laporan berhasil dihapus." });
+});
+
+app.delete('/api/tasks/:id', requireAuth(['Admin', 'RT_Leader']), (req, res) => {
+  db.delete('cleanup_tasks', req.params.id);
+  res.json({ success: true, message: "Tugas gotong royong berhasil dihapus." });
+});
+
+app.delete('/api/evacuations/:id', requireAuth(['Admin', 'NGO', 'RT_Leader']), (req, res) => {
+  db.delete('flood_response_logs', req.params.id);
+  res.json({ success: true, message: "Data bantuan/evakuasi berhasil dihapus." });
+});
+
+app.patch('/api/bpbd/posts/:id', requireAuth(['Admin']), (req, res) => {
+  const { water_level_cm, siaga_level, status } = req.body;
+  const updated = db.update('bpbd_posts', req.params.id, {
+    ...(water_level_cm !== undefined ? { water_level_cm: Number(water_level_cm) } : {}),
+    ...(siaga_level !== undefined ? { siaga_level: Number(siaga_level) } : {}),
+    ...(status !== undefined ? { status } : {})
+  });
+  if (!updated) return res.status(404).json({ success: false, error: "Pos pantau tidak ditemukan" });
+  res.json({ success: true, post: updated });
+});
+
+app.post('/api/admin/clear-operational-data', requireAuth(['Admin']), async (req, res) => {
+  await db.clearOperationalData();
+  res.json({
+    success: true,
+    message: "Seluruh laporan, tugas, evakuasi, dan pesan Telegram berhasil dikosongkan ke 0 (di memori lokal & cloud Supabase)."
   });
 });
 
